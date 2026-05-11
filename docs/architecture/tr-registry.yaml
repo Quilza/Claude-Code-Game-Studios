@@ -24,33 +24,526 @@
 #
 # STATUS VALUES: active | deprecated | superseded-by: TR-[system]-NNN
 
-version: 1
-last_updated: ""
+version: 2
+last_updated: "2026-05-11"
 
-requirements: []
+requirements:
 
-# --- EXAMPLE ENTRIES (remove when first real entries are added) ---
-#
-# - id: TR-combat-001
-#   system: combat
-#   gdd: design/gdd/combat-system.md
-#   requirement: "Player takes damage from enemies based on attack power minus defence"
-#   created: 2026-03-10
-#   revised: ""
-#   status: active
-#
-# - id: TR-combat-002
-#   system: combat
-#   gdd: design/gdd/combat-system.md
-#   requirement: "Combo window timing is 0.4 seconds between hits"
-#   created: 2026-03-10
-#   revised: "2026-04-01"
-#   status: active
-#
-# - id: TR-combat-003
-#   system: combat
-#   gdd: design/gdd/combat-system.md
-#   requirement: "Old damage formula using raw stats"
-#   created: 2026-03-10
-#   revised: ""
-#   status: superseded-by: TR-combat-001
+  # ----- Configuration Loader -----
+  - id: TR-config-001
+    system: config
+    gdd: design/gdd/configuration-loader.md
+    requirement: "Autoload singleton initialised before any scene `_ready()` runs"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-config-002
+    system: config
+    gdd: design/gdd/configuration-loader.md
+    requirement: "Resolves config.json path per platform (PC executable dir, macOS beside .app, Web res://, editor project root)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-config-003
+    system: config
+    gdd: design/gdd/configuration-loader.md
+    requirement: "Owns user://settings.json persistence — load at boot, write synchronously on set_setting(), emit setting_changed"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-config-004
+    system: config
+    gdd: design/gdd/configuration-loader.md
+    requirement: "Schema versioning via schema_version: int field (mismatch → CONFIG_INVALID; absent → no mismatch)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-config-005
+    system: config
+    gdd: design/gdd/configuration-loader.md
+    requirement: "is_mock() reads top-level 'mock': bool from config.json (project-wide mock flag for MVP)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-config-006
+    system: config
+    gdd: design/gdd/configuration-loader.md
+    requirement: "Test-mode fallback returns safe defaults when config.json absent in editor (does not enter CONFIG_MISSING)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Audio Manager -----
+  - id: TR-audio-001
+    system: audio
+    gdd: design/gdd/audio-manager.md
+    requirement: "Autoload singleton accessible to TCB + future alert systems via Tier 3 singleton access"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-audio-002
+    system: audio
+    gdd: design/gdd/audio-manager.md
+    requirement: "Bus topology: Master → Music bus (-18 dB default) + SFX bus (-12 dB default)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-audio-003
+    system: audio
+    gdd: design/gdd/audio-manager.md
+    requirement: "8-node pre-instantiated AudioStreamPlayer pool — no runtime allocation, silent drop on exhaustion with push_warning"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-audio-004
+    system: audio
+    gdd: design/gdd/audio-manager.md
+    requirement: "Audio Manager is stream-agnostic — caller owns the agent-to-stream lookup (no internal registry)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-audio-005
+    system: audio
+    gdd: design/gdd/audio-manager.md
+    requirement: "Settings persist via ConfigLoader setting_changed signal subscription; AudioManager reapplies bus volumes/mute on change"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-audio-006
+    system: audio
+    gdd: design/gdd/audio-manager.md
+    requirement: "Web AudioContext requires user-gesture unlock before first playback (HTML5 export only)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- TileMap Renderer -----
+  - id: TR-tilemap-001
+    system: tilemap
+    gdd: design/gdd/tilemap-renderer.md
+    requirement: "TileMapLayer wrapper with CELL_SIZE=16 and MODULE_SIZE=8 canonical constants exposed to all spatial systems"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tilemap-002
+    system: tilemap
+    gdd: design/gdd/tilemap-renderer.md
+    requirement: "4-layer structure (Floor z=0, AlertOverlay z=0.5, Wall z=1 with Y-sort, Overlay z=2) sharing one TileSet"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tilemap-003
+    system: tilemap
+    gdd: design/gdd/tilemap-renderer.md
+    requirement: "Single writer rule — no system outside TileMap Renderer touches TileMapLayer nodes directly"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tilemap-004
+    system: tilemap
+    gdd: design/gdd/tilemap-renderer.md
+    requirement: "Room registry mapping room_id → Rect2i via register_room(); set_alert_state() toggles AlertOverlay visibility (no per-cell writes)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Data Bridge -----
+  - id: TR-data-bridge-001
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "One HTTPRequest node per configured agent, pre-instantiated at _ready(), never created or freed at runtime"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-data-bridge-002
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "Each agent runs an independent polling coroutine — polls within an agent serialise; polls across agents may overlap"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-data-bridge-003
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "Data Bridge emits raw String payload only — no JSON parsing, no field interpretation"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-data-bridge-004
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "Authentication: Authorization: Bearer [auth_token] header per-agent if auth_token non-empty"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-data-bridge-005
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "Per-agent backoff — grace(1 failure no event) → STALE(2nd) → DISCONNECTED(4th, retry cap 30s) → CONNECTED on success (auto-heal)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-data-bridge-006
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "Mock mode swaps polling driver internally — zero HTTPRequest nodes created, identical signal interface, consumers cannot distinguish mock from live"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-data-bridge-007
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "Mock data cycles assets/data/mock/[agent_id].json JSON array sequentially (wraps to index 0); http_status:0 simulates timeout"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-data-bridge-008
+    system: data-bridge
+    gdd: design/gdd/data-bridge.md
+    requirement: "Web export CORS strategy (proxy / web-only mock / PC-only) — deferred to prototype; ADR-0004 will formalise resolution"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Agent State Machine (BLOCKED — provisional registry entries) -----
+  - id: TR-asm-001
+    system: asm
+    gdd: design/gdd/agent-state-machine.md
+    requirement: "AgentStateMachine is the sole emitter of task_completed(agent_id: String) — no other module may emit"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-asm-002
+    system: asm
+    gdd: design/gdd/agent-state-machine.md
+    requirement: "Canonical agent state vocabulary (idle/working/completed/errored) — final list awaits Data Bridge prototype Qs 4-5"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-asm-003
+    system: asm
+    gdd: design/gdd/agent-state-machine.md
+    requirement: "Emits agent_state_changed(agent_id: String, new_state: String, previous_state: String) on every transition"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-asm-004
+    system: asm
+    gdd: design/gdd/agent-state-machine.md
+    requirement: "Connection-quality reporting mechanism (re-emit DataBridge.connection_state_changed or separate signal) — HUD OQ-4"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-asm-005
+    system: asm
+    gdd: design/gdd/agent-state-machine.md
+    requirement: "Parses Data Bridge raw payload into canonical state; field-agnostic stats dictionary"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-asm-006
+    system: asm
+    gdd: design/gdd/agent-state-machine.md
+    requirement: "Public API get_agent_state(id) and get_agent_stats(id) returns Dictionary (copy, never internal ref)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Room System -----
+  - id: TR-room-001
+    system: room
+    gdd: design/gdd/room-system.md
+    requirement: "Room System is a Node2D in scene tree (NOT Autoload) — callers hold @export var room_system: RoomSystem"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-room-002
+    system: room
+    gdd: design/gdd/room-system.md
+    requirement: "COMMANDERS_ROOM_ID = &\"commander\" — exposed constant, permanent room, never has agent_ids"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-room-003
+    system: room
+    gdd: design/gdd/room-system.md
+    requirement: "RoomData inner class — bounds: Rect2i, agent_ids: Array[StringName], workstation_tiles: Array[Vector2i] (index-matched)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-room-004
+    system: room
+    gdd: design/gdd/room-system.md
+    requirement: "Registers rooms with TileMap Renderer in _ready() via tile_map_renderer.register_room(id, bounds)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-room-005
+    system: room
+    gdd: design/gdd/room-system.md
+    requirement: "Computer prop emits computer_interacted signal forwarded from Area2D (Commander's Room only)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Agent Character Controller -----
+  - id: TR-acc-001
+    system: acc
+    gdd: design/gdd/agent-character-controller.md
+    requirement: "Per-agent CharacterBody2D, one ACC instance per configured agent (N instances at scene init)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-acc-002
+    system: acc
+    gdd: design/gdd/agent-character-controller.md
+    requirement: "AnimationPlayer state machine driven by ASM agent_state_changed signal (idle/working/completed/errored animations)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-acc-003
+    system: acc
+    gdd: design/gdd/agent-character-controller.md
+    requirement: "Subscribes to ASM.agent_state_changed filtered by agent_id via Callable.bind(agent_id)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-acc-004
+    system: acc
+    gdd: design/gdd/agent-character-controller.md
+    requirement: "Pure consumer — no public signals; ACC observes completion but ASM emits task_completed (ADR-0005)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-acc-005
+    system: acc
+    gdd: design/gdd/agent-character-controller.md
+    requirement: "Navigation between workstation tiles within assigned room"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-acc-006
+    system: acc
+    gdd: design/gdd/agent-character-controller.md
+    requirement: "Constants ERROR_TIMEOUT_SEC=30.0, STAGGER_BASE_SEC=0.2, COMPLETED_BEAT_DURATION_SEC=2.0"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-acc-007
+    system: acc
+    gdd: design/gdd/agent-character-controller.md
+    requirement: "Sprite placement uses TileMap Renderer cell_to_world helpers — never raw arithmetic on coordinates"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Ambient Animation Layer -----
+  - id: TR-aal-001
+    system: aal
+    gdd: design/gdd/ambient-animation-layer.md
+    requirement: "One AmbientAnimationLayer Node2D per room — owns per-room ambient nodes and ambient state"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-aal-002
+    system: aal
+    gdd: design/gdd/ambient-animation-layer.md
+    requirement: "Background ambient via AnimationPlayer + Tween — room-context-aware"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-aal-003
+    system: aal
+    gdd: design/gdd/ambient-animation-layer.md
+    requirement: "Subscribes to ASM.agent_state_changed for room-level ambient reactions (e.g. COMPLETED prop flash)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-aal-004
+    system: aal
+    gdd: design/gdd/ambient-animation-layer.md
+    requirement: "TRANSITION_SEC = 0.3 constant for ambient state transitions"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Task Completion Beat -----
+  - id: TR-tcb-001
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "Stateless one-shot subscriber to task_completed (sole emitter ASM per ADR-0005)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tcb-002
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "Resolves AudioStream from AgentSoundRegistry by agent_type; calls AudioManager.play_sfx(stream)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tcb-003
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "Emits beat_fired(agent_id: String, timestamp: float) signal consumed by HUD recent completions panel"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tcb-004
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "Room modulate Tween — attack 0.3s + hold 0.5s + decay 0.7s = 1.5s total; peak Color(1.15, 1.35, 1.15, 1.0)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tcb-005
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "Same-room Tween collision: kill existing Tween and restart from current modulate value (no compounding, no reset to neutral)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tcb-006
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "Per-room independent Tweens; multiple simultaneous completions do not coordinate (additive only)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tcb-007
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "AgentSoundRegistry preloaded at scene startup from assets/audio/sfx/completion/[agent_type].ogg; default.ogg mandatory"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-tcb-008
+    system: tcb
+    gdd: design/gdd/task-completion-beat.md
+    requirement: "Resolves completing agent's room Node2D for Tween target — interface provisional (likely RoomSystem.get_agent_room + group lookup)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Commander's Room HUD -----
+  - id: TR-hud-001
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Screen-edge CanvasLayer panel + screen-space detail overlay (NOT in-world SubViewport)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-002
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "3×4 slot grid state synchronised with ASM (12 max agents)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-003
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Completions strip capped at 6 entries; prepends [HH:MM] [agent_id] on beat_fired"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-004
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Per-slot 1.5s timer for + glyph after beat_fired; on expiry reads ASM.get_agent_state and applies WORKING/ERRORED/IDLE glyph"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-005
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "tasks_completed per-agent accumulator — exact count, increments on beat_fired"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-006
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Subscribes to ASM (state + connection) + TCB (beat_fired) + Room System (computer_interacted) + ConfigLoader (settings)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-007
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Connection-quality alpha overlay: CONNECTED α=1.0, STALE α=0.5, DISCONNECTED α=0.25 (glyph + colour unchanged)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-008
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "BitmapFont 5×7 px rendering via FontFile import (custom BMFont)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-009
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "keep_integer stretch mode required for pixel-perfect HUD rendering across platforms"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-010
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Detail overlay non-modal; status panel mouse_filter = MOUSE_FILTER_IGNORE (no input capture)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-011
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Sync pass at HUD _ready() — calls ASM.get_agent_state(id) per agent to populate initial slot state (HUD AC-2 / EC-6)"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-hud-012
+    system: hud
+    gdd: design/gdd/commanders-room-hud.md
+    requirement: "Commander's Room computer prop signal originates from Room System (Area2D forwarder), not from HUD"
+    created: 2026-05-11
+    revised: ""
+    status: active
+
+  # ----- Cross-cutting -----
+  - id: TR-xc-001
+    system: xc
+    gdd: docs/architecture/architecture.md
+    requirement: "All cross-module communication uses typed Godot signals (Tier 1) or injected references (Tier 2); no string-based connect"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-xc-002
+    system: xc
+    gdd: docs/architecture/architecture.md
+    requirement: "Mock-mode strategy is invisible to all consumers — no is_mock() checks outside DataBridge"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-xc-003
+    system: xc
+    gdd: docs/architecture/architecture.md
+    requirement: "GUT (Godot Unit Testing) test framework + GitHub Actions CI gates merges to main"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-xc-004
+    system: xc
+    gdd: docs/architecture/architecture.md
+    requirement: "Only ConfigLoader + AudioManager are Autoloads (Tier 3); all other systems instantiated by Main Scene Bootstrap"
+    created: 2026-05-11
+    revised: ""
+    status: active
+  - id: TR-xc-005
+    system: xc
+    gdd: docs/architecture/architecture.md
+    requirement: "No hardcoded gameplay numbers — tuning data via ConfigLoader or registered constants in design/registry/entities.yaml"
+    created: 2026-05-11
+    revised: ""
+    status: active

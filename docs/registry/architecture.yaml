@@ -43,7 +43,28 @@ last_updated: ""
 # interface: how other systems access this state (read-only property, method call,
 #   signal, shared resource, etc.) — this is the contract other ADRs depend on.
 
-state_ownership: []
+state_ownership:
+  - state: config_data
+    status: active
+    owner_system: configuration-loader
+    adr: docs/architecture/adr-0002-config-loading-persistence.md
+    interface: "ConfigLoader.get_agents() -> Array[Dictionary] | get_agent(id) -> Dictionary | get_poll_interval() -> float | get_protocol() -> String | is_mock() -> bool (all read-only; callers must not mutate returned collections)"
+    write_access: configuration-loader-only
+    referenced_by:
+      - docs/architecture/adr-0002-config-loading-persistence.md
+    added: 2026-05-11
+    revised: ""
+
+  - state: user_settings
+    status: active
+    owner_system: configuration-loader
+    adr: docs/architecture/adr-0002-config-loading-persistence.md
+    interface: "ConfigLoader.get_setting(key: StringName, default: Variant) -> Variant | set_setting(key: StringName, value: Variant) -> void | signal setting_changed(key, value)"
+    write_access: configuration-loader-only  # other systems call set_setting() — ConfigLoader performs the write
+    referenced_by:
+      - docs/architecture/adr-0002-config-loading-persistence.md
+    added: 2026-05-11
+    revised: ""
 
 # Example:
 #
@@ -71,7 +92,55 @@ state_ownership: []
 #
 # pattern options: signal | direct_call | event_bus | shared_resource | rpc | none
 
-interfaces: []
+interfaces:
+  - contract: config_ready_notification
+    status: active
+    pattern: signal
+    producer: configuration-loader
+    consumers:
+      - data-bridge       # calls get_agents(), get_poll_interval(), is_mock() after signal
+      - room-system       # calls get_agents() after signal to build room registry
+      - commanders-room-hud  # calls get_setting() after signal for HUD tuning knobs
+    adr: docs/architecture/adr-0002-config-loading-persistence.md
+    signal_signature: "config_loaded()"
+    notes: "Emitted exactly once per application lifetime. Consumers must connect before _ready() completes or use get_state() == 'READY' to check synchronously."
+    referenced_by:
+      - docs/architecture/adr-0002-config-loading-persistence.md
+    added: 2026-05-11
+    revised: ""
+
+  - contract: task_completion_event
+    status: active
+    pattern: signal
+    producer: agent-state-machine
+    consumers:
+      - task-completion-beat   # triggers audio beat + room modulate Tween + emits beat_fired
+      - commanders-room-hud    # updates recent completions panel
+    adr: docs/architecture/adr-0005-task-completed-signal-source.md
+    signal_signature: "task_completed(agent_id: String)"
+    notes: "Emitted after agent_state_changed on the same COMPLETED transition. Sole emitter: AgentStateMachine — DataBridge, ACC, and all other modules are consumers only. Repeated COMPLETED payloads must NOT re-emit (guard: no emission when new_state == previous_state)."
+    referenced_by:
+      - docs/architecture/adr-0005-task-completed-signal-source.md
+    added: 2026-05-11
+    revised: ""
+
+  - contract: data_bridge_events
+    status: active
+    pattern: signal
+    producer: data-bridge
+    consumers:
+      - agent-state-machine    # interprets raw_payload → agent state transitions; receives poll failures
+      - commanders-room-hud    # receives connection_changed for status indicators
+    adr: docs/architecture/adr-0001-data-bridge-transport.md
+    signal_signature: |
+      agent_response_received(agent_id: String, http_status: int, raw_payload: String)
+      agent_connection_changed(agent_id: String, connection_state: String)
+      agent_poll_failed(agent_id: String, error_code: int, http_status: int, error_message: String)
+    notes: "agent_id is String (not StringName) — value originates from JSON config parsing. raw_payload is emitted unmodified (no JSON parsing). Web CORS strategy is unresolved for MVP — deferred to prototype."
+    referenced_by:
+      - docs/architecture/adr-0001-data-bridge-transport.md
+    added: 2026-05-11
+    revised: ""
 
 # Example:
 #
@@ -131,7 +200,81 @@ performance_budgets: []
 # Register an API decision when the choice is non-obvious and other ADRs might
 # make a different choice for the same purpose without knowing this was decided.
 
-api_decisions: []
+api_decisions:
+  - purpose: autoload_access_pattern
+    status: active
+    api: "Singleton name access (e.g. ConfigLoader.get_agents(), AudioManager.play_sfx())"
+    not: "Singleton name access for any system other than ConfigLoader and AudioManager"
+    adr: docs/architecture/adr-0003-autoload-scene-composition.md
+    reason: "ConfigLoader and AudioManager are project-wide services consumed by every system. All other systems are scene-scoped and must be accessed via injected references or typed signals."
+    referenced_by:
+      - docs/architecture/adr-0003-autoload-scene-composition.md
+      - docs/architecture/adr-0006-signal-based-decoupling.md
+    added: 2026-05-11
+    revised: ""
+
+  - purpose: cross_module_communication_pattern
+    status: active
+    api: "Three-Tier Model: Tier 1 = typed Godot signals (events), Tier 2 = injected reference method calls (synchronous queries, read-only), Tier 3 = Autoload singleton calls (ConfigLoader/AudioManager only)"
+    not: "Event bus Autoload, string-based connect(), get_node() scene discovery, _process() polling, direct cross-system state writes"
+    adr: docs/architecture/adr-0006-signal-based-decoupling.md
+    reason: "Typed signals provide decoupled event notification with compile-time parameter checking. Injected refs provide safe synchronous queries. The three-tier model ensures every communication pattern is testable in isolation."
+    referenced_by:
+      - docs/architecture/adr-0006-signal-based-decoupling.md
+    added: 2026-05-11
+    revised: ""
+
+  - purpose: signal_connection_syntax
+    status: active
+    api: "source.signal_name.connect(callable) — callable syntax (Godot 4.x)"
+    not: "source.connect('signal_name', target, 'method_name') — string-based syntax (deprecated since Godot 4.0)"
+    adr: docs/architecture/adr-0006-signal-based-decoupling.md
+    reason: "String-based connect() is deprecated in Godot 4.x. Callable syntax is type-safe, validated by the editor, and compatible with static analysis. All new code must use callable syntax."
+    referenced_by:
+      - docs/architecture/adr-0006-signal-based-decoupling.md
+    added: 2026-05-11
+    revised: ""
+
+  - purpose: test_framework_and_runner
+    status: active
+    api: "GUT 9.x (Godot Unit Testing) — headless runner: godot --headless -s res://addons/gut/gut_cmdln.gd -gdir=res://tests -gexit"
+    not: "GDUnit4 (different runner format); manual-only testing; any other test addon"
+    adr: docs/architecture/adr-0014-test-framework-ci.md
+    reason: "GUT is the approved test addon per technical-preferences.md Allowed Libraries. Headless runner is required for GitHub Actions CI. GUT plugin must be activated in project.godot [editor_plugins] or headless runner silently skips all tests."
+    referenced_by:
+      - docs/architecture/adr-0014-test-framework-ci.md
+    added: 2026-05-11
+    revised: ""
+
+  - purpose: mock_mode_toggle
+    status: active
+    api: "ConfigLoader.is_mock() — project-wide boolean read once at DataBridge._ready(); true → all agents use mock file polling; false → all agents use HTTP polling"
+    not: "Per-agent mock flags in MVP (deferred post-MVP); environment variables; #if guards; any system other than DataBridge checking is_mock()"
+    adr: docs/architecture/adr-0008-mock-mode-strategy.md
+    reason: "DataBridge is the sole consumer of is_mock(). Global scope for MVP — either all agents are mocked or none. Consumers (ASM, HUD, TCB) must not check is_mock(). Mock files at res://assets/data/mock/[agent_id].json."
+    referenced_by:
+      - docs/architecture/adr-0008-mock-mode-strategy.md
+    added: 2026-05-11
+    revised: ""
+
+  - purpose: tween_lifecycle_pattern
+    status: active
+    api: |
+      create_tween() + bind_node(target) [MANDATORY] +
+      sequential phases via chained tween_property() on one Tween +
+      re-trigger via kill() + new create_tween() (NOT stop()) +
+      cleanup via finished signal connection (NOT await) +
+      pause behaviour controlled by owning Node's process_mode
+    not: |
+      Tween pool / Tween Autoload manager / await tween.finished (when target may free) /
+      relying on finished signal after kill() / Tween.stop() for re-trigger semantics /
+      multiple Tween instances for sequential phases of one effect
+    adr: docs/architecture/adr-0010-tween-lifecycle.md
+    reason: "Single project-wide pattern for runtime Tweens prevents three modules (TCB, AAL, HUD) from independently re-solving lifecycle questions. bind_node() closes VERIFY-9 (Tween on freed Node2D). kill()-not-finished and await-pitfall are documented gotchas from godot-specialist consultation 2026-05-11. Pause-via-owning-node aligns HUD pause-immunity with TCB pause-with-game."
+    referenced_by:
+      - docs/architecture/adr-0010-tween-lifecycle.md
+    added: 2026-05-11
+    revised: ""
 
 # Example:
 #
@@ -157,7 +300,55 @@ api_decisions: []
 # Register a pattern when an ADR explicitly bans it AND other ADRs might
 # unknowingly use it (i.e., it's a tempting but wrong approach for this project).
 
-forbidden_patterns: []
+forbidden_patterns:
+  - pattern: new_autoload_without_adr
+    status: active
+    description: "No additional Autoloads may be registered in Project Settings beyond ConfigLoader and AudioManager without a new ADR superseding ADR-0003."
+    why: "Each Autoload creates a hidden global dependency. The two-Autoload limit is a deliberate architectural boundary. Expanding it without a documented decision hides coupling and makes the initialization order unpredictable."
+    adr: docs/architecture/adr-0003-autoload-scene-composition.md
+    added: 2026-05-11
+
+  - pattern: direct_user_settings_write
+    status: active
+    description: "No system may write to user:// settings files directly. All preference persistence must go through ConfigLoader.set_setting(). No system may open user://settings.json (or any user:// file) with FileAccess for writing without going through ConfigLoader."
+    why: "ConfigLoader is the sole owner of user://settings.json. Direct writes from other systems would bypass setting_changed signal emission, break the single-write-point contract, and create race conditions if two systems write simultaneously."
+    adr: docs/architecture/adr-0002-config-loading-persistence.md
+    added: 2026-05-11
+
+  - pattern: process_polling_for_state
+    status: active
+    description: "No system may poll another system's state inside _process() or _physics_process(). State changes must propagate via Godot typed signals (Tier 1). Calling getters like get_agent_state() or checking flags in _process() instead of connecting to a signal is banned."
+    why: "Polling couples the polling system to the polled system's update frequency, burns CPU every frame regardless of whether state changed, and bypasses the established signal contract. The signal system exists precisely to eliminate this pattern."
+    adr: docs/architecture/adr-0006-signal-based-decoupling.md
+    added: 2026-05-11
+
+  - pattern: string_based_signal_connect
+    status: active
+    description: "No signal connection may use the deprecated string-based syntax: source.connect('signal_name', target, 'method_name'). All connections must use the Godot 4.x callable syntax: source.signal_name.connect(callable)."
+    why: "String-based connect() is deprecated since Godot 4.0, provides no type safety, cannot be validated by the editor's signal panel, and breaks static analysis. The callable syntax is the established pattern for this engine version."
+    adr: docs/architecture/adr-0006-signal-based-decoupling.md
+    added: 2026-05-11
+
+  - pattern: scene_tree_discovery
+    status: active
+    description: "No Phase 2 system may locate another Phase 2 system via get_node(), find_child(), get_parent(), or any scene-tree traversal. All cross-system references must be injected by the Main Scene Bootstrap via inject_*() methods."
+    why: "Scene-tree discovery couples systems to their position in the tree, breaks if the tree structure changes, fails in unit tests where the full scene is not present, and creates hidden initialization-order dependencies. Explicit injection is the required pattern (ADR-0003 bootstrap model)."
+    adr: docs/architecture/adr-0006-signal-based-decoupling.md
+    added: 2026-05-11
+
+  - pattern: direct_cross_system_state_write
+    status: active
+    description: "No system may write to state owned by another system. A system that needs to cause a state change in another system must emit a signal; the owning system listens and mutates its own state. Direct field writes or setter calls that bypass the owner's internal logic are banned."
+    why: "Direct state writes bypass signal emission (breaking observers), corrupt the state ownership model (ADR-0003 bootstrap), and create race conditions if two systems write to the same state. The signal-driven model ensures the owner controls all mutations to its own state."
+    adr: docs/architecture/adr-0006-signal-based-decoupling.md
+    added: 2026-05-11
+
+  - pattern: tween_without_bind_node
+    status: active
+    description: "Every Tween created via create_tween() must immediately call bind_node(target) before any tween_property() calls. Tweens without bind_node() leak when their animation target is freed mid-animation, producing 'Object was freed' log spam and orphan Tween objects that survive until SceneTree teardown."
+    why: "bind_node() is the Godot 4.6.2-documented mechanism for auto-killing a Tween when its target Node is freed. Without it, freed-target scenarios (agent removed from config, scene transition, HUD slot deletion) produce silent orphan Tweens. The TCB E7 edge case (VERIFY-9) and AAL/HUD lifecycle cases all require this guarantee."
+    adr: docs/architecture/adr-0010-tween-lifecycle.md
+    added: 2026-05-11
 
 # Example:
 #
