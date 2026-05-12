@@ -1,8 +1,8 @@
 # Commander's Room HUD
 
-> **Status**: Designed — pending /design-review in fresh session (PROVISIONAL: ASM interface not yet finalized — see OQ-1)
+> **Status**: Designed — pending /design-review (ASM contract reconciled 2026-05-12 per `design/reviews/gdd-cross-review-2026-05-12.md`)
 > **Author**: Thomas + agents
-> **Last Updated**: 2026-05-11
+> **Last Updated**: 2026-05-12
 > **Implements Pillar**: Pillar 4 — Commander Always Home + Pillar 2 — Readable at a Glance
 
 ## Overview
@@ -53,8 +53,8 @@ This is the expression of **Pillar 2 — Readable at a Glance** and **Pillar 4 �
    - e. ASM `"working"` signal during timer window → cancel timer, switch to ● green immediately.
 
 7. The status panel is **reactive, not polling**. All state derives from two subscribed signal sources:
-   - `AgentStateMachine.agent_state_changed(agent_id: StringName, new_state: StringName)` — drives glyph updates. *(Provisional — ASM GDD not yet designed.)*
-   - `TaskCompletionBeat.beat_fired(agent_id: StringName, timestamp: float)` — drives COMPLETED transitions and completions strip.
+   - `AgentStateMachine.agent_state_changed(agent_id: String, new_state: String, previous_state: String)` — drives glyph updates (per ADR-0007 + ASM GDD §6.2).
+   - `TaskCompletionBeat.beat_fired(agent_id: String, timestamp: float)` — drives COMPLETED transitions and completions strip.
 
 8. The **completions strip** sits adjacent to the glyph grid (below or beside — layout is a tuning knob). Each `beat_fired` prepends one entry: `[HH:MM] [agent_id]`. Ordered most recent first. Caps at `hud_completion_strip_size` entries (default 6); oldest drop off.
 
@@ -146,11 +146,12 @@ Transitions: `CLOSED → OPENING` (computer prop clicked) → `OPEN` (fade compl
 
 | System | Direction | Interface | Notes |
 |--------|-----------|-----------|-------|
-| Agent State Machine | ASM → HUD | `agent_state_changed(agent_id: StringName, new_state: StringName)` | Drives per-slot glyph on status panel. **Provisional** — ASM GDD not yet designed. |
-| Agent State Machine | HUD → ASM | `get_agent_stats(agent_id: StringName) → Dictionary` | Called on Zone 3 refresh. Field-agnostic. |
-| Agent State Machine | ASM → HUD | Connection quality per agent (STALE / DISCONNECTED / healthy) | Mechanism TBD — drives alpha overlays on status panel. |
-| Room System | Room System → HUD | `get_all_agent_ids() → Array[StringName]` | Read at `_ready`. Initialises slot grid. |
-| Task Completion Beat | TCB → HUD | `beat_fired(agent_id: StringName, timestamp: float)` | Drives COMPLETED glyph, completions strip, `tasks_completed` accumulation. |
+| Agent State Machine | ASM → HUD | `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` | Drives per-slot glyph on status panel. Locked per ADR-0007 + ASM GDD §6.2. |
+| Agent State Machine | HUD → ASM | `get_agent_stats(agent_id: String) → Dictionary` (9-field schema per ASM §4.6) | Called on detail overlay refresh. Field-agnostic. |
+| Agent State Machine | HUD → ASM | `get_bunker_summary() → Dictionary` | Called for status panel header (working_count / errored_count / etc). Per ASM §3.7 Rule 15. |
+| Data Bridge | DataBridge → HUD | `agent_connection_changed(agent_id: String, new_state: String)` | Drives `modulate.a` per slot per ADR-0011 (1.0 / 0.5 / 0.25 / red tint). Orthogonal to agent-state per ADR-0007. |
+| Configuration Loader | ConfigLoader → HUD | `get_agents() → Array[Dictionary]` | Read at `_ready` to initialise slot grid. The agent roster lives in config, not Room System. Slot count matches `agents` array; commanders_room_id = "commander". |
+| Task Completion Beat | TCB → HUD | `beat_fired(agent_id: String, timestamp: float)` | Drives COMPLETED glyph, completions strip, `tasks_completed` accumulation. |
 | Configuration Loader | Config → HUD | `agents` array + `max_agents = 12` constant | Slots beyond configured agents render as EMPTY. |
 | Room System (prop) | Player → Prop → HUD | Computer prop emits signal on click → HUD opens detail overlay | Prop is a room scene object; HUD is a CanvasLayer. They communicate via signal. |
 | Audio Manager | None | — | HUD has no audio output. All beat audio is owned by Task Completion Beat. |
@@ -260,9 +261,10 @@ ASM returns `{}` for an agent. Zone 3 shows only the HUD-accumulated `tasks_comp
 
 | System | What the HUD Consumes | Notes |
 |--------|----------------------|-------|
-| Agent State Machine | Signal `agent_state_changed(agent_id, new_state)` for glyph updates; method `get_agent_stats(agent_id) → Dictionary` for Zone 3 stats | **Provisional** — ASM GDD not yet designed. Signal name, state string vocabulary, and connection-quality reporting mechanism may change. |
-| Task Completion Beat | Signal `beat_fired(agent_id, timestamp)` | Drives COMPLETED glyph, completions strip, and `tasks_completed` accumulation. Constant `beat_total_seconds = 1.5 s` must stay in sync with TCB's `BEAT_TOTAL_SEC` tuning knob. |
-| Room System | `get_all_agent_ids() → Array[StringName]` (or equivalent) | Read at `_ready` to initialise slot grid. Slot count and order must match the `agents` array in `config.json`. Must use `commanders_room_id = "commander"` constant — never hardcoded. |
+| Agent State Machine | Signal `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` for glyph updates; method `get_agent_stats(agent_id: String) → Dictionary` for detail overlay; method `get_bunker_summary() → Dictionary` for panel header | Locked per ADR-0007 + ASM GDD §6.2. State vocabulary: `idle / working / completed / errored`. |
+| Data Bridge | Signal `agent_connection_changed(agent_id: String, new_state: String)` | Drives `modulate.a` per slot per ADR-0011. Orthogonal to agent-state. |
+| Task Completion Beat | Signal `beat_fired(agent_id: String, timestamp: float)` | Drives COMPLETED glyph, completions strip, and `tasks_completed` accumulation. Constant `beat_total_seconds = 1.5 s` must stay in sync with TCB's `BEAT_TOTAL_SEC` tuning knob. |
+| Configuration Loader | `get_agents() → Array[Dictionary]` + `max_agents = 12` constant | Read at `_ready` to initialise slot grid. Slot count and order match the `agents` array. Must use `commanders_room_id = "commander"` constant — never hardcoded. (Agent roster lives in config, not Room System.) |
 | Configuration Loader | `agents` array (ordered list of configured agents), `max_agents = 12` constant | Read at startup. Determines grid size and EMPTY slot count. |
 
 **Downstream — systems that depend on the Commander's Room HUD:**
@@ -462,9 +464,14 @@ The Commander's Room HUD (both the status panel and the detail overlay) has **no
 
 ## Open Questions
 
-**OQ-1: ASM provisional interface (BLOCKING for implementation)**
+**OQ-1: ~~ASM provisional interface~~ RESOLVED 2026-05-12**
 
-The Agent State Machine GDD is not yet designed. The signal names (`agent_state_changed`), state string vocabulary (`"idle"`, `"working"`, `"errored"`), and connection-quality reporting mechanism (STALE/DISCONNECTED) are all provisional. When the ASM GDD is authored, review this GDD against it and resolve any interface mismatches before implementation begins.
+Resolved by ASM GDD (Accepted 2026-05-12) + ADR-0007 + ADR-0001 Amendment 2026-05-12.b:
+- Signal name confirmed: `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` (3-arg, String not StringName)
+- State vocabulary locked: `idle / working / completed / errored`
+- Connection-quality is orthogonal — HUD subscribes to **DataBridge.agent_connection_changed** directly (per ADR-0011), not via ASM
+- `get_agent_stats(agent_id)` returns 9-field Dictionary per ASM §4.6
+- New: `get_bunker_summary()` for status panel header per ASM §3.7 Rule 15
 
 **OQ-2: Computer prop interactive affordance**
 

@@ -2,9 +2,9 @@
 
 > **Status**: Designed — pending /design-review in fresh session
 > **Author**: Thomas + agents
-> **Last Updated**: 2026-05-09
+> **Last Updated**: 2026-05-12 (post-ASM reconciliation per `design/reviews/gdd-cross-review-2026-05-12.md`)
 > **Implements Pillar**: Pillar 3 — Satisfying Feedback
-> **⚠ PROVISIONAL**: Agent State Machine GDD not yet complete. Room node resolution interface remains provisional pending ASM GDD. Signal source resolved by ADR-0005 (AgentStateMachine is the sole emitter of task_completed). `agent_type` resolution finalized 2026-05-11 — see Open Questions §2 + §3.
+> **ASM contract**: locked by ADR-0007 + `design/gdd/agent-state-machine.md` (Accepted 2026-05-12). TCB subscribes directly to ASM's `task_completed(agent_id: String)` signal — ASM is sole emitter per ADR-0005 + ASM GDD Rule 10. Room node resolution interface still requires Room System GDD expansion (see OQ-4).
 
 ## Overview
 
@@ -69,7 +69,7 @@ None. The Task Completion Beat is stateless. It has no internal states, no per-a
 
 | System | Direction | Interface | Notes |
 |---|---|---|---|
-| **Agent State Machine** *(provisional)* | → TCB | `task_completed(agent_id: String)` | Primary trigger. Provisional — review after ASM GDD |
+| **Agent State Machine** | → TCB | `task_completed(agent_id: String)` | Primary trigger. ASM is sole emitter per ADR-0005 + ASM GDD Rule 10. Fires on every entry into `completed` state (per ASM §3.4 Rule 10). |
 | **Configuration Loader** | → TCB | `ConfigurationLoader.get_agent(agent_id) → Dictionary` | TCB reads `agent_type` field from the dict (default `"default"`) to resolve the registry key |
 | **Room System** | → TCB | Room Node2D resolution — interface provisional | Required to apply modulate Tween to the correct room |
 | **Audio Manager** | TCB → | `AudioManager.play_sfx(stream: AudioStream) → void` | TCB passes preloaded stream; Audio Manager is stream-agnostic |
@@ -309,7 +309,7 @@ Then the sum is ≤ `completed_beat_duration_seconds` (2.0 s). If the sum exceed
 
 ## Open Questions
 
-1. **`task_completed` signal source**: This GDD treats the trigger as coming from the Agent State Machine (ASM). The ACC GDD also defines a `task_completed(agent_id)` signal on the character controller itself. Which is the canonical source — ASM or ACC? If TCB subscribes to ACC directly, it must subscribe to each ACC instance individually (up to 12 subscriptions); if it subscribes to the ASM, one subscription handles all agents. **Defer to Agent State Machine GDD.**
+1. **~~`task_completed` signal source~~** — RESOLVED 2026-05-12 by ADR-0005 + ASM GDD Rule 10. ASM is the sole emitter; TCB subscribes once (not per-ACC). ACC does NOT emit `task_completed` (ACC GDD reconciled in same pass).
 
 2. **~~`ConfigurationLoader.get_agent_type(agent_id)`~~** — RESOLVED 2026-05-11. TCB calls `ConfigurationLoader.get_agent(agent_id).get(&"agent_type", "default")`. `get_agent()` already exists per Configuration Loader GDD line 132.
 
@@ -319,4 +319,6 @@ Then the sum is ≤ `completed_beat_duration_seconds` (2.0 s). If the sum exceed
 
 5. **Tween on freed node (E7 VERIFY)**: If an agent's room Node2D is freed while a modulate Tween is running, Godot 4.6.2's behavior is expected to be a clean stop (no crash). Needs engine verification. **Add to project VERIFY list.**
 
-6. **AAL + TCB visual layering in practice**: AAL fires a white prop flash on the same frame as TCB's room modulate Tween. The intended visual is "props flash white inside a room brightening green." Confirm this reads as intended in the first integration playtest — the two effects may interact differently in the actual renderer than on paper.
+6. **AAL + TCB visual layering in practice**: AAL fires a white prop flash on the same frame as TCB's room modulate Tween. The intended visual is "props flash white inside a room brightening green." Confirm this reads as intended in the first integration playtest — the two effects may interact differently in the actual renderer than on paper. (Note 2026-05-12: confirm against the corrected S2 green `#5BAD63` — Tween peak `Color(1.15, 1.35, 1.15, 1.0)` was tuned against the pre-WCAG-shift `#4A9A52` and may overshoot slightly with the new brighter green; visual smoke needed.)
+
+7. **~~Conversation context (multi-message threads)~~** — RESOLVED 2026-05-12 by ASM GDD Authoring Provenance #4. ASM is stateless per poll; TCB receives each `task_completed` as an independent event. No multi-event chaining.

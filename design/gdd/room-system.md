@@ -91,14 +91,18 @@ In MVP, only `AGENT_ROOM_ID` transitions. The Commander's Room always remains UN
 - `tile_map_renderer.register_room(room_id: StringName, bounds: Rect2i)` called in `_ready()` for each room
 
 **Room System public API (queried by downstream systems):**
-- `get_room(room_id: StringName) → RoomData` — primary query: returns bounds, agent_id, spawn_tile
-- `get_all_room_ids() → Array[StringName]` — returns all known room IDs (HUD, Camera enumerate rooms via this)
-- `get_room_for_agent(agent_id: StringName) → StringName` — returns the room_id for an agent's department (`&""` if not assigned)
-- `get_workstation_for_agent(agent_id: StringName) → Vector2i` — returns this agent's assigned workstation tile within their department room
-- `assign_agent(room_id: StringName, agent_id: StringName)` — adds agent to department, assigns next available workstation tile, emits `agent_assigned`
-- `unassign_agent(room_id: StringName, agent_id: StringName)` — removes agent from department, frees workstation slot, emits `agent_unassigned`
-- Signal `agent_assigned(room_id: StringName, agent_id: StringName)`
-- Signal `agent_unassigned(room_id: StringName, agent_id: StringName)`
+
+**Type convention** (post-ADR-0001 reconciliation 2026-05-12): `room_id` is `StringName` (internal constant like `&"commander"`); `agent_id` is `String` (matches Data Bridge / ASM / ConfigLoader contract). Do not mix.
+
+- `get_room(room_id: StringName) → RoomData` — primary query: returns bounds, agent_ids, spawn_tile, workstation_tiles
+- `get_all_room_ids() → Array[StringName]` — returns all known room IDs (HUD enumerates rooms via this; HUD enumerates *agents* via `ConfigurationLoader.get_agents()`, not Room System)
+- `get_room_for_agent(agent_id: String) → StringName` — returns the room_id for an agent's department (`&""` if not assigned)
+- `get_workstation_for_agent(agent_id: String) → Vector2i` — returns this agent's assigned workstation tile within their department room
+- `assign_agent(room_id: StringName, agent_id: String)` — adds agent to department, assigns next available workstation tile, emits `agent_assigned`
+- `unassign_agent(room_id: StringName, agent_id: String)` — removes agent from department, frees workstation slot, emits `agent_unassigned`
+- Signal `agent_assigned(room_id: StringName, agent_id: String)`
+- Signal `agent_unassigned(room_id: StringName, agent_id: String)`
+- Signal `computer_interacted()` — forwarded from the commander's computer prop (`Area2D` on click) to HUD. Per `design/ux/interaction-patterns.md` P8. Drives HUD detail overlay open. Signal has no payload — HUD reads agent context from its own state. (Documented here per A-5 of the 2026-05-12 cross-GDD review; the signal originates on the computer prop scene and Room System re-forwards.)
 
 **System boundary — Room System vs. Agent State Machine:**
 Room System knows WHERE (bounds, spawn_tile) and WHO (agent_id). Agent State Machine knows WHAT (idle/working/completed/errored). The HUD assembles both by making separate getter calls to each system. Neither system knows the other exists.

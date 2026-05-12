@@ -2,9 +2,9 @@
 
 > **Status**: Designed — pending /design-review in fresh session
 > **Author**: Thomas + agents
-> **Last Updated**: 2026-05-09
+> **Last Updated**: 2026-05-12 (post-ASM reconciliation per `design/reviews/gdd-cross-review-2026-05-12.md`)
 > **Implements Pillar**: Alive by Default (Pillar 1)
-> **⚠ PROVISIONAL**: Agent State Machine assumptions used throughout. Review this GDD after Agent State Machine GDD is complete.
+> **ASM contract**: locked by ADR-0007 + `design/gdd/agent-state-machine.md` (Accepted 2026-05-12).
 
 ## Overview
 
@@ -14,7 +14,7 @@ One Ambient Animation Layer instance exists for the entire scene. It initializes
 
 The Ambient Animation Layer does not own character animations (those belong to the Agent Character Controller), tile state (TileMap Renderer), alert overlays (Alert State System), or task completion visuals (Task Completion Beat). It owns exactly one thing: the environmental motion of the bunker's decorative layer.
 
-*⚠ Provisional: Agent State Machine GDD is not yet designed. The signal interface for state-sensitive props is assumed. Review this GDD after Agent State Machine GDD is complete.*
+*ASM contract reconciled 2026-05-12. Signal interface per ASM GDD §6.2. AAL aggregates per-room state internally — ASM is room-blind by design.*
 
 ## Player Fantasy
 
@@ -68,8 +68,8 @@ State-sensitive props change their animation variant per agent state. These are 
 
 | System | Direction | Interface | Notes |
 |---|---|---|---|
-| **Agent State Machine** *(provisional)* | → AAL | `agent_state_changed(agent_id: StringName, new_state: StringName)` | AAL subscribes once; dispatches to room-scoped prop groups |
-| **Room System** | → AAL | `RoomSystem.get_room_for_agent(agent_id) → StringName` | Called on each state change to identify which room group to update |
+| **Agent State Machine** | → AAL | `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` | AAL subscribes once; aggregates per-room state internally (ASM is room-blind); dispatches to room-scoped prop groups |
+| **Room System** | → AAL | `RoomSystem.get_room_for_agent(agent_id: String) → StringName` | Called on each state change to identify which room group to update. `agent_id` is `String` per ADR-0001; `room_id` return is `StringName` (internal constant). |
 | **Room System** | → AAL | `RoomSystem.get_room_rect(room_id) → Rect2i` | Used if AAL validates prop placement within room bounds (authoring validation only) |
 | **TileMap Renderer** | → AAL | `cell_size = 16` constant | Props snap to tile grid at placement time |
 | **Ambient prop nodes** | AAL → | `set_ambient_state(new_state: StringName)` | AAL calls this on every prop in the affected room's group |
@@ -154,8 +154,8 @@ If the Agent State Machine does not emit a `DISCONNECTED` sub-state (design TBD)
 
 | System | What the AAL Needs | When It's Needed |
 |---|---|---|
-| **Agent State Machine** *(provisional)* | `agent_state_changed(agent_id: StringName, new_state: StringName)` signal | Every state change that triggers state-sensitive prop updates |
-| **Room System** | `get_room_for_agent(agent_id) → StringName` | On each state change, to route to the correct room group |
+| **Agent State Machine** | `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` signal per ADR-0007 + ASM GDD §6.2 | Every state change that triggers state-sensitive prop updates |
+| **Room System** | `get_room_for_agent(agent_id: String) → StringName` | On each state change, to route to the correct room group |
 | **TileMap Renderer** | `cell_size = 16` constant | Prop placement authoring — props snap to tile grid |
 | **Configuration Loader** | Agent list (which agents exist, which rooms they occupy) | Startup — determines which room groups to expect at scene load |
 
@@ -163,9 +163,12 @@ If the Agent State Machine does not emit a `DISCONNECTED` sub-state (design TBD)
 
 None. The Ambient Animation Layer drives visuals only and provides no data or signals to other systems.
 
-### Provisional Dependency Notes
+### Connection-state handling (post-ASM reconciliation)
 
-*⚠ Full DISCONNECTED visual behavior (lights off entirely) depends on whether Agent State Machine forwards DISCONNECTED as a sub-state on `agent_state_changed`. Review and update when Agent State Machine GDD is authored.*
+Per ADR-0007 + ASM GDD §3.5 Rule 11, connection-state and agent-state are orthogonal. ASM does **not** forward `DISCONNECTED` as a sub-state on `agent_state_changed` — connection-state is owned by Data Bridge and rendered separately by HUD via `modulate.a`. For AAL:
+
+- **Default**: AAL subscribes to `agent_state_changed` only. Props react to agent-state (`idle / working / completed / errored`), not connection-state.
+- **DISCONNECTED visual fallback** (if needed for design polish): AAL may *optionally* subscribe to `DataBridge.agent_connection_changed(agent_id, new_state)` to apply a connection-state visual layer (e.g., dim all room props to 50% modulate when the agent's connection is STALE; 25% when DISCONNECTED). This is additive and does not change agent-state-driven behavior. Treat as a post-MVP polish item.
 
 ## Tuning Knobs
 
@@ -244,9 +247,9 @@ The Ambient Animation Layer owns **no audio**. Ambient sound (machine hum, venti
 
 ## Open Questions
 
-1. **Agent State Machine signal interface (HIGH — blocks implementation).** This GDD assumes `agent_state_changed(agent_id: StringName, new_state: StringName)`. Confirm signal name, signature, and whether DISCONNECTED is forwarded as a sub-state when Agent State Machine GDD is authored.
+1. ~~Agent State Machine signal interface~~ **RESOLVED 2026-05-12**: ASM signal is `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` per ADR-0007 + ASM GDD §6.2. DISCONNECTED is NOT forwarded — orthogonal axis per ADR-0007 Rule 11.
 
-2. **DISCONNECTED visual fallback.** If Agent State Machine does not forward DISCONNECTED, what should state-sensitive props show? Options: stay in last-known state, return to IDLE, or a new "signal lost" visual. Decide after Agent State Machine GDD is complete.
+2. ~~DISCONNECTED visual fallback~~ **RESOLVED 2026-05-12**: Default behavior — AAL ignores connection-state entirely (agent-state-driven only). Optional polish path: subscribe to `DataBridge.agent_connection_changed` for additive visual layer. See "Connection-state handling" subsection above.
 
 3. **Prop Z-ordering with character sprites.** Confirm whether ambient prop `AnimatedSprite2D` nodes placed above `TileMapLayer_Wall` (z=1) correctly sort against character Node2D instances in Godot 4.6.2. This is related to VERIFY item #3 in active.md (TileMapLayer Y-sort behavior). If Y-sort conflicts cause props to render incorrectly relative to characters, a Z-index adjustment or separate CanvasLayer may be needed.
 

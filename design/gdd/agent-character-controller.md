@@ -2,9 +2,9 @@
 
 > **Status**: Designed — pending /design-review in fresh session
 > **Author**: Thomas + agents
-> **Last Updated**: 2026-05-09
+> **Last Updated**: 2026-05-12 (post-ASM reconciliation per `design/reviews/gdd-cross-review-2026-05-12.md`)
 > **Implements Pillar**: Alive by Default (Pillar 1) + Readable at a Glance (Pillar 2)
-> **⚠ PROVISIONAL**: Agent State Machine assumptions used throughout. Review this GDD after Agent State Machine GDD is complete.
+> **ASM contract**: locked by ADR-0007 + `design/gdd/agent-state-machine.md` (Accepted 2026-05-12).
 
 ## Overview
 
@@ -14,7 +14,7 @@ One Agent Character Controller instance exists per configured agent (up to 12). 
 
 The Agent Character Controller is the primary proof of Pillar 2 (Readable at a Glance) and the central legibility test of the project: can `idle`, `working`, `completed`, and `errored` be distinguished by animation alone, within three seconds, without text? If this fails, the bunker becomes a chart with a skin on it. This GDD specifies how the four states are animated and defines the legibility test that must be run with placeholder art before full production begins.
 
-*⚠ Provisional: Agent State Machine GDD is not yet designed. Signal interface and state names are assumed. Review this GDD after Agent State Machine GDD is complete.*
+*ASM contract reconciled 2026-05-12. Signal interface and state names per ADR-0007 + ASM GDD §3.*
 
 ## Player Fantasy
 
@@ -92,14 +92,13 @@ You notice before you notice — a character stands up from their desk and you a
 
 | System | Direction | Interface | Notes |
 |---|---|---|---|
-| **Agent State Machine** *(provisional)* | → ACC | `agent_state_changed(agent_id: StringName, new_state: StringName)` | Primary driver of all behavioral transitions. `new_state` ∈ {`IDLE`, `WORKING`, `COMPLETED`, `ERRORED`} |
-| **Agent State Machine** *(provisional)* | → ACC | Error-clear signal *(name TBD — review after ASM GDD)* | Exits ERRORED/resigned idle |
-| **Room System** | → ACC | `RoomSystem.get_workstation_for_agent(agent_id) → Vector2i` | Called on spawn and on each WORKING entry |
-| **Room System** | → ACC | `RoomSystem.get_room_bounds(room_id) → Rect2i` | Used to generate waypoints within room bounds during IDLE_WANDERING |
+| **Agent State Machine** | → ACC | `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` | Primary driver of all behavioral transitions. `new_state` ∈ {`idle`, `working`, `completed`, `errored`} per ADR-0007. Recovery from `errored` arrives via this same signal (no separate error-clear signal — when the next non-error payload arrives, ASM emits `agent_state_changed(id, <new>, "errored")`). |
+| **Room System** | → ACC | `RoomSystem.get_workstation_for_agent(agent_id: String) → Vector2i` | Called on spawn and on each `working` entry |
+| **Room System** | → ACC | `RoomSystem.get_room(room_id).bounds` (RoomData.bounds: Rect2i) | Used to generate waypoints within room bounds during IDLE_WANDERING |
 | **TileMap Renderer** | → ACC | `cell_size = 16` constant; `NavigationRegion2D` baked from tilemap | Tile centers computed from `cell_size`; path requests filtered by NavigationRegion2D |
-| **Data Bridge** *(indirect)* | → ACC | STALE / DISCONNECTED state forwarded via Agent State Machine | ACC does not subscribe to Data Bridge directly — Agent State Machine forwards connection states as sub-states |
+| **Data Bridge** *(indirect)* | → ACC | Connection state is orthogonal per ADR-0007. ACC does NOT subscribe to `agent_connection_changed` — HUD owns connection-state rendering per ADR-0011. | ACC only renders agent-state (4 states). STALE/DISCONNECTED is a HUD `modulate.a` concern, not a sprite-animation concern. |
 | **Audio Manager** | ACC → | `AudioManager.play_sfx("completed_beat", agent_id)` | Called at COMPLETED_BEAT entry |
-| **Task Completion Beat** | ACC → | `task_completed(agent_id: StringName)` signal emitted by ACC | Task Completion Beat subscribes to drive its visual/audio beat sequence |
+| **Task Completion Beat** | — | (No direct ACC↔TCB edge.) Per ADR-0005 + ASM Rule 10, `task_completed` is emitted **solely by ASM**. TCB subscribes directly to ASM. ACC plays the completion animation when it receives `agent_state_changed(id, "completed", ...)` — ACC does NOT emit `task_completed`. |
 | **Ambient prop nodes** | ACC ↔ | ACC calls `get_tree().get_nodes_in_group("ambient_prop")` | Reads `interaction_point: Marker2D` and `interaction_animation: StringName` from prop scenes |
 
 ## Formulas
@@ -236,8 +235,8 @@ Room System is responsible for ensuring each agent has a unique workstation tile
 
 | System | What the ACC Needs | When It's Needed |
 |---|---|---|
-| **Agent State Machine** *(provisional)* | `agent_state_changed(agent_id, new_state)` signal; error-clear signal | Every behavioral state transition |
-| **Room System** | `get_workstation_for_agent(agent_id) → Vector2i`; `get_room_bounds(room_id) → Rect2i` | On spawn (initial assignment); on each WORKING entry; during IDLE_WANDERING waypoint generation |
+| **Agent State Machine** | `agent_state_changed(agent_id: String, new_state: String, previous_state: String)` signal per ADR-0007 + ASM GDD §6.2 | Every behavioral state transition. No separate error-clear signal — recovery from `errored` arrives as `agent_state_changed(id, <new>, "errored")`. |
+| **Room System** | `get_workstation_for_agent(agent_id: String) → Vector2i`; `get_room(room_id).bounds: Rect2i` (via RoomData) | On spawn (initial assignment); on each `working` entry; during IDLE_WANDERING waypoint generation |
 | **TileMap Renderer** | `cell_size` constant (16px); `NavigationRegion2D` baked from the tilemap | Tile center calculation (F4); all path requests |
 | **Configuration Loader** | Agent list (agent IDs and their department room assignments) | At startup — determines how many ACC instances are created and which room each belongs to |
 
@@ -245,7 +244,7 @@ Room System is responsible for ensuring each agent has a unique workstation tile
 
 | System | What It Needs from ACC | Notes |
 |---|---|---|
-| **Task Completion Beat** | `task_completed(agent_id: StringName)` signal from ACC | Task Completion Beat subscribes to this signal to trigger its visual + audio sequence |
+| **Task Completion Beat** | — (no direct edge) | Per ADR-0005 + ASM Rule 10, `task_completed` is emitted solely by ASM. TCB subscribes directly to ASM. ACC plays the completion animation when it sees `agent_state_changed(id, "completed", ...)` but emits nothing. |
 | **Audio Manager** | `play_sfx("completed_beat", agent_id)` call from ACC at COMPLETED_BEAT entry | Audio Manager is a service dependency — it does not depend on ACC, but ACC calls into it |
 | **Commander's Room HUD** | Agent status (WORKING / IDLE / ERRORED) per agent | HUD may read agent states directly from Agent State Machine rather than through ACC — exact interface TBD when HUD GDD is authored |
 
@@ -406,7 +405,7 @@ All rows use the same SpriteFrames resource. `walk_left` and `idle_left` are not
 
 **Signal Interface**
 
-15. **ACC emits `task_completed` on COMPLETED entry.** When `agent_state_changed(id, "COMPLETED")` is received, the ACC emits `task_completed(agent_id: StringName)` in the same frame. Task Completion Beat receives the signal.
+15. **ACC plays the completion animation on `agent_state_changed(id, "completed", ...)` but emits no signal.** Per ADR-0005 + ASM Rule 10, `task_completed` is emitted solely by ASM. TCB subscribes directly to ASM. ACC's role on `completed` entry is purely visual: trigger the COMPLETED_BEAT sprite animation. (Reconciled 2026-05-12 — previous draft incorrectly claimed ACC was the emitter.)
 
 16. **ACC calls Audio Manager on COMPLETED entry.** `AudioManager.play_sfx("completed_beat", agent_id)` is called at the start of every COMPLETED_BEAT state, no more than once per COMPLETED signal.
 
