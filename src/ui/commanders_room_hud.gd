@@ -58,6 +58,7 @@ signal hud_visibility_toggled(visible: bool)
 @export var data_bridge: DataBridge = null
 @export var task_completion_beat: TaskCompletionBeat = null
 @export var room_system: RoomSystem = null
+@export var overlay_layer: CanvasLayer = null   # Main.tscn's OverlayLayer (layer=20)
 
 
 # ─── Layout constants ────────────────────────────────────────────────────────
@@ -103,6 +104,14 @@ var _slot_controls: Dictionary = {}        # agent_id → SlotControl (Panel wit
 var _completions_strip_root: Control = null
 var _completions_label: Label = null
 
+# Detail overlay (OverlayLayer child; populated when user clicks a slot)
+var _detail_overlay_root: Control = null
+var _detail_overlay_open: bool = false
+var _detail_target_agent_id: String = ""
+var _detail_title_label: Label = null
+var _detail_body_label: Label = null
+var _detail_refresh_timer: Timer = null
+
 
 # ─── Godot lifecycle ─────────────────────────────────────────────────────────
 
@@ -119,6 +128,11 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"toggle_hud"):
 		toggle_visibility()
+		get_viewport().set_input_as_handled()
+		return
+	# Esc closes detail overlay if open
+	if _detail_overlay_open and event is InputEventKey and event.is_pressed() and (event as InputEventKey).keycode == KEY_ESCAPE:
+		close_detail_overlay()
 		get_viewport().set_input_as_handled()
 
 
@@ -312,8 +326,12 @@ func _build_single_slot(agent_id: String, col: int, row: int) -> Panel:
 	)
 	slot.size = SLOT_SIZE
 	# Per ADR-0011: STOP only on the 12 clickable slots; IGNORE everywhere else.
-	# For MVP we leave it IGNORE — clicks open detail overlay (TODO).
-	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not agent_id.is_empty():
+		slot.mouse_filter = Control.MOUSE_FILTER_STOP
+		# Wire click → detail overlay
+		slot.gui_input.connect(_on_slot_gui_input.bind(agent_id))
+	else:
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	# Background tint
 	var bg: ColorRect = ColorRect.new()
@@ -472,6 +490,163 @@ func _short_label(agent_id: String) -> String:
 	if agent_id.length() <= 5:
 		return agent_id
 	return agent_id.substr(0, 5)
+
+
+# ─── Detail overlay (per ADR-0011 OverlayLayer) ──────────────────────────────
+
+func _on_slot_gui_input(event: InputEvent, agent_id: String) -> void:
+	if event is InputEventMouseButton and event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		open_detail_overlay(agent_id)
+		get_viewport().set_input_as_handled()
+
+
+## Opens the detail overlay for the given agent. Per ADR-0011, the overlay
+## sits on its own CanvasLayer (layer=20) so it draws above the HUD chrome.
+func open_detail_overlay(agent_id: String) -> void:
+	if not _slot_state.has(agent_id):
+		push_warning("[HUD] open_detail_overlay: unknown agent_id '%s'" % agent_id)
+		return
+	if overlay_layer == null:
+		push_warning("[HUD] overlay_layer not wired; detail overlay cannot open")
+		return
+	_detail_target_agent_id = agent_id
+	if _detail_overlay_root == null:
+		_build_detail_overlay()
+	_detail_overlay_root.visible = true
+	_detail_overlay_open = true
+	_refresh_detail_overlay()
+	# Light refresh ticker — agent state may change while overlay is open
+	if _detail_refresh_timer == null:
+		_detail_refresh_timer = Timer.new()
+		_detail_refresh_timer.wait_time = 0.5
+		_detail_refresh_timer.one_shot = false
+		_detail_refresh_timer.autostart = false
+		add_child(_detail_refresh_timer)
+		_detail_refresh_timer.timeout.connect(_refresh_detail_overlay)
+	_detail_refresh_timer.start()
+
+
+## Closes the detail overlay.
+func close_detail_overlay() -> void:
+	if _detail_overlay_root != null:
+		_detail_overlay_root.visible = false
+	_detail_overlay_open = false
+	_detail_target_agent_id = ""
+	if _detail_refresh_timer != null:
+		_detail_refresh_timer.stop()
+
+
+func _build_detail_overlay() -> void:
+	# Per ADR-0011: OverlayLayer = CanvasLayer at layer=20.
+	# Build a Control hierarchy as a child of overlay_layer.
+	_detail_overlay_root = Control.new()
+	_detail_overlay_root.name = "DetailOverlayRoot"
+	_detail_overlay_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_detail_overlay_root.mouse_filter = Control.MOUSE_FILTER_STOP   # absorbs clicks (modal-ish)
+	_detail_overlay_root.gui_input.connect(_on_backdrop_clicked)
+	overlay_layer.add_child(_detail_overlay_root)
+
+	# Backdrop (semi-transparent dimmer)
+	var backdrop: ColorRect = ColorRect.new()
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.color = Color(0.0, 0.0, 0.0, 0.55)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE   # parent already STOPs
+	_detail_overlay_root.add_child(backdrop)
+
+	# Detail panel — centered, 240×180 per ADR-0011 §3.5 P5
+	var panel: Panel = Panel.new()
+	panel.name = "DetailPanel"
+	panel.size = Vector2(240, 180)
+	panel.position = Vector2((480 - 240) / 2.0, (270 - 180) / 2.0)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_detail_overlay_root.add_child(panel)
+
+	var panel_bg: ColorRect = ColorRect.new()
+	panel_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel_bg.color = Color(0.15, 0.12, 0.10, 0.96)
+	panel_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(panel_bg)
+
+	# Title (top of panel)
+	_detail_title_label = Label.new()
+	_detail_title_label.name = "Title"
+	_detail_title_label.position = Vector2(8, 6)
+	_detail_title_label.size = Vector2(224, 16)
+	_detail_title_label.add_theme_font_size_override("font_size", 14)
+	_detail_title_label.modulate = COLOR_TEXT
+	_detail_title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_detail_title_label)
+
+	# Body — multi-line stats dump
+	_detail_body_label = Label.new()
+	_detail_body_label.name = "Body"
+	_detail_body_label.position = Vector2(8, 28)
+	_detail_body_label.size = Vector2(224, 130)
+	_detail_body_label.add_theme_font_size_override("font_size", 9)
+	_detail_body_label.modulate = COLOR_TEXT_DIM
+	_detail_body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_detail_body_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_detail_body_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_detail_body_label)
+
+	# Hint footer
+	var hint: Label = Label.new()
+	hint.position = Vector2(8, 164)
+	hint.size = Vector2(224, 12)
+	hint.add_theme_font_size_override("font_size", 7)
+	hint.text = "click anywhere or press Esc to close"
+	hint.modulate = Color(0.5, 0.45, 0.4, 1.0)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(hint)
+
+	_detail_overlay_root.visible = false
+
+
+func _on_backdrop_clicked(event: InputEvent) -> void:
+	# Per ADR-0011 P5: clicking the backdrop dismisses the overlay.
+	if event is InputEventMouseButton and event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		close_detail_overlay()
+
+
+func _refresh_detail_overlay() -> void:
+	if not _detail_overlay_open or _detail_target_agent_id.is_empty():
+		return
+	if _detail_title_label == null or _detail_body_label == null:
+		return
+	var agent_id: String = _detail_target_agent_id
+	var display_name: String = String(_slot_state.get(agent_id, {}).get("display_name", agent_id))
+	_detail_title_label.text = display_name
+
+	var stats: Dictionary = {}
+	if agent_state_machine != null:
+		stats = agent_state_machine.get_agent_stats(agent_id)
+	var conn_state: String = String(_slot_state.get(agent_id, {}).get("connection_state", "?"))
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("agent id:        %s" % agent_id)
+	lines.append("agent state:     %s" % String(stats.get("current_state", "?")))
+	lines.append("connection:      %s" % conn_state)
+	lines.append("tasks completed: %d" % int(stats.get("tasks_completed", 0)))
+	lines.append("errored count:   %d" % int(stats.get("errored_count", 0)))
+	lines.append("input tokens:    %d" % int(stats.get("total_input_tokens", 0)))
+	lines.append("output tokens:   %d" % int(stats.get("total_output_tokens", 0)))
+	lines.append("last stop reason: %s" % String(stats.get("last_stop_reason", "—")))
+	lines.append("last payload id: %s" % String(stats.get("last_payload_id", "—")))
+	var session_ms: int = int(stats.get("session_start_ms", 0))
+	if session_ms > 0:
+		var elapsed_sec: int = int((Time.get_ticks_msec() - session_ms) / 1000.0)
+		lines.append("session uptime:  %d:%02d" % [elapsed_sec / 60, elapsed_sec % 60])
+	_detail_body_label.text = "\n".join(lines)
+
+
+# ─── Test-only seam ─────────────────────────────────────────────────────────
+
+func _test_is_detail_overlay_open() -> bool:
+	return _detail_overlay_open
+
+
+func _test_get_detail_target() -> String:
+	return _detail_target_agent_id
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────

@@ -44,7 +44,7 @@ const HUD_SCRIPT: String = "res://src/ui/commanders_room_hud.gd"
 
 @onready var world_root: Node2D = $WorldRoot
 @onready var hud_layer: CanvasLayer = $HudLayer
-@onready var overlay_layer: CanvasLayer = $OverlayLayer
+@onready var overlay_layer: CanvasLayer = $OverlayLayer if has_node("OverlayLayer") else null
 # TileMapRenderer is authored as a child of WorldRoot in Main.tscn; resolved
 # lazily so unit tests can run with a mock-built scene.
 @onready var tile_map_renderer: TileMapRenderer = world_root.get_node_or_null("TileMapRenderer")
@@ -129,7 +129,11 @@ func _instantiate_systems() -> void:
 		_commanders_room_hud.data_bridge = _data_bridge
 		_commanders_room_hud.task_completion_beat = _task_completion_beat
 		_commanders_room_hud.room_system = _room_system
+		_commanders_room_hud.overlay_layer = overlay_layer   # for detail-overlay parenting
 		hud_layer.add_child(_commanders_room_hud)
+	# Show OverlayLayer (Main.tscn sets it visible=false by default; HUD code controls its content)
+	if overlay_layer != null:
+		overlay_layer.visible = true
 
 
 func _instantiate_agent_character_controllers() -> void:
