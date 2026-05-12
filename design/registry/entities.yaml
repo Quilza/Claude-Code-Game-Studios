@@ -37,7 +37,7 @@
 #   Each entry: name, status, source, referenced_by[], attributes{}, added, revised
 
 version: 1
-last_updated: "2026-05-09"
+last_updated: "2026-05-12"
 
 # ─── ENTITIES ────────────────────────────────────────────────────────────────
 # Named game-world objects: enemies, NPCs, characters, factions, bosses.
@@ -181,12 +181,11 @@ constants:
     referenced_by:
       - design/gdd/configuration-loader.md
       - design/gdd/data-bridge.md
-      # Agent State Machine GDD must reference this — staleness/timeout expectations
-      # are calibrated against the poll interval
+      - design/gdd/agent-state-machine.md  # ASM §6.1 — bridge poll cadence influences state-change observation frequency
     value: 5.0
     unit: seconds
     added: 2026-05-09
-    revised: ""
+    revised: "2026-05-12"  # ASM added to referenced_by
 
   - name: max_poll_retries
     status: active
@@ -255,10 +254,23 @@ constants:
     referenced_by:
       - design/gdd/task-completion-beat.md
       - design/gdd/commanders-room-hud.md  # HUD COMPLETED glyph timer must equal this value exactly
-      # If BEAT_TOTAL_SEC is retuned in TCB, HUD's hud_completed_timer_sec must be updated to match.
+      - design/gdd/agent-state-machine.md  # ASM's COMPLETED_DECAY_SEC must equal this; ASM Rule 6 + §4.1 constraint
+      # If BEAT_TOTAL_SEC is retuned in TCB, HUD's hud_completed_timer_sec AND ASM's completed_decay_sec must update to match.
     value: 1.5
     unit: seconds
     added: 2026-05-09
+    revised: "2026-05-12"  # ASM added to referenced_by
+
+  - name: stats_write_interval_sec
+    status: active
+    source: design/gdd/agent-state-machine.md
+    referenced_by:
+      - design/gdd/agent-state-machine.md
+      # Could be referenced by future implementations of state persistence (GDD #15 — Alpha)
+      # if persistence cadence needs to align across multiple persistence-using systems.
+    value: 5.0
+    unit: seconds
+    added: 2026-05-12
     revised: ""
 
 # Example:
