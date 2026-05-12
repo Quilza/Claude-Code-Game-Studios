@@ -8,8 +8,8 @@ extends Node
 ##
 
 @onready var _bridge: DataBridge = $DataBridge
-@onready var _agents_container: VBoxContainer = $UI/AgentsContainer
-@onready var _header: Label = $UI/Header
+@onready var _agents_container: VBoxContainer = $UI/Margin/VStack/AgentsContainer
+@onready var _header: Label = $UI/Margin/VStack/Header
 
 
 func _ready() -> void:

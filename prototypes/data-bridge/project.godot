@@ -15,7 +15,6 @@ config/name="Situation Room — Data Bridge Prototype"
 config/description="Sprint 1 prototype: validate HTTP polling against a real AI API, capture state-vocabulary findings, unblock ADR-0007."
 run/main_scene="res://Main.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
-config/icon="res://icon.svg"
 
 [autoload]
 
