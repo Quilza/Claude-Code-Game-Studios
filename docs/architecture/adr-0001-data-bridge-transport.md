@@ -367,3 +367,90 @@ N/A — establishes pattern before implementation. Prototype validation (data-br
 - ADR-0006: Signal-Based Decoupling Pattern — three DataBridge signals are Tier 1 events; all consumers connect via bootstrap
 - ADR-0008: Mock Mode Strategy — is_mock() determines which polling path activates; both paths emit identical signals
 - ADR-0005: task_completed Signal Source — ASM (downstream consumer) interprets `agent_response_received` and emits `task_completed` when a task completes
+
+---
+
+## Amendment 2026-05-12.b (post-Sprint-1 prototype)
+
+Source: `prototypes/data-bridge/findings.md` (Sprint 1 real-API observations against Anthropic Messages API) + `docs/architecture/adr-0007-agent-state-vocabulary.md` (ADR-0007's `working` state requires in-flight visibility).
+
+### B1 — 4xx config-fatal vs 5xx/network transient differentiation
+
+**Empirical finding**: Anthropic returns **HTTP 400** for credit-balance errors (not the conventional 402 Payment Required). Other config-fatal errors land on 400 (invalid_request_error) and 404 (model not_found_error). These will never auto-heal — the user must fix configuration. Treating them as transient burns API calls and confuses the bridge into a perpetual backoff loop.
+
+**Amended backoff rule**:
+
+```gdscript
+# pseudocode in _handle_poll_failure
+if response_code >= 400 and response_code < 500:
+    # Config-fatal — do not retry. Transition to DISCONNECTED immediately.
+    _transition_state(agent_id, STATE_DISCONNECTED)
+    push_warning("[DataBridge:%s] HTTP %d config-fatal — bridge will not retry until config changes" % [agent_id, response_code])
+    return
+# 5xx or network errors fall through to the original backoff curve:
+#   grace(1) → STALE(2) → DISCONNECTED(4); cap 30s; auto-heal on success
+```
+
+Recovery from a 4xx-induced DISCONNECTED state requires either:
+- a ConfigurationLoader `setting_changed` signal (e.g., user updated token in user://settings.json)
+- a manual bridge restart (re-bootstrap on scene reload)
+
+Production HUD should surface 4xx-induced DISCONNECTED with explicit copy ("Configuration error — check your API key and model") distinct from network-induced DISCONNECTED ("Connection lost — retrying").
+
+### B2 — Request-in-flight signal exposure (required by ADR-0007 `working` state)
+
+**Findings link**: ADR-0007 specifies that ASM's `working` state is entered when a request is in flight, BEFORE the response arrives. Without bridge-side visibility into in-flight state, the HUD shows `idle` during the request window — which can be hundreds of milliseconds for slow API endpoints or actual agent workloads.
+
+**New signals added to DataBridge contract**:
+
+```gdscript
+signal request_dispatched(agent_id: String)   # fires immediately before HTTPRequest.request() call
+signal request_settled(agent_id: String)      # fires after _on_request_completed, regardless of success/failure
+```
+
+**New read-only accessor**:
+
+```gdscript
+func is_request_in_flight(agent_id: String) -> bool
+```
+
+ASM subscribes to `request_dispatched` and `request_settled` per ADR-0006 Tier 2 (`.bind(agent_id)`) and updates its in-flight tracking. Combined with `agent_response_received` payload parsing, ASM can correctly derive `working` for the entire request window plus the multi-step `tool_use`/`pause_turn` cases.
+
+The new signals are additive — existing consumers (HUD, AAL, TCB) are not required to subscribe. Only ASM needs them.
+
+### B3 — Anthropic error envelope shape (documented for ASM)
+
+Empirically observed Anthropic error response body:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error" | "not_found_error" | "rate_limit_error" | "api_error" | "overloaded_error",
+    "message": "human-readable reason"
+  },
+  "request_id": "req_..."
+}
+```
+
+DataBridge does NOT parse this (raw String passthrough per ADR-0001 single-writer rule). ASM parses it per ADR-0007's derivation rule. Documented here for cross-reference.
+
+### B4 — Rate-limit header parsing (deferred, post-MVP)
+
+Anthropic returns `anthropic-ratelimit-requests-limit`, `anthropic-ratelimit-requests-remaining`, `anthropic-ratelimit-requests-reset`, and tokens-equivalents in response headers. A production-grade Data Bridge should parse these and adapt poll cadence dynamically (back off when remaining is low, resume when reset time passes).
+
+**MVP stance**: ignore these headers. Default 15-30s cadence at 12-agent scale is well within free-tier limits. Revisit post-MVP when real users at scale trigger rate-limiting.
+
+### Validation criteria added
+
+- GUT: `test_4xx_transitions_to_disconnected_immediately()` — mock HTTP 400 response; verify `_failure_counts == 0` (skipped the grace curve); `STATE_DISCONNECTED` emitted on first failure
+- GUT: `test_5xx_uses_grace_curve()` — mock HTTP 503; verify CONNECTED → CONNECTED (grace) → STALE → DISCONNECTED transitions across 4 failures
+- GUT: `test_request_dispatched_and_settled_fire_in_order()` — mock one request; verify `request_dispatched` precedes `request_settled` precedes `agent_response_received`
+- GUT: `test_is_request_in_flight_during_request()` — between `request_dispatched` and `request_settled`, `is_request_in_flight(agent_id) == true`
+
+### Registry updates (when amendment lands)
+
+- `http_4xx_config_fatal_skip_retry` api_decision
+- `http_5xx_network_use_backoff_curve` api_decision
+- `request_dispatched_settled_signal_pair` api_decision
+- `bridge_parses_response_body` forbidden_pattern reinforcement (ASM parses, never bridge)
