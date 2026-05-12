@@ -230,7 +230,7 @@ The palette divides into two registers: **World** (rooms, surfaces, infrastructu
 | **W2 Institutional Grey-Warm** | `#4A4035` | World | Primary wall and floor surface. The neutral background against which all semantic colors read. Flat and non-competing. |
 | **W3 Worn Metal** | `#6B5E4A` | World | Door frames, workstation chassis, conduit runs, bracket hardware. Aged brushed steel. |
 | **S1 Amber Idle** | `#D4882A` | Shared | "The bunker is breathing." Baseline living color — indicator lights at rest, CRT screen glow, HUD dot glyph. |
-| **S2 Active Green** | `#4A9A52` | Shared | "Signal is live." Warm-shifted oscilloscope green — task in progress, completion pulse, HUD rect glyph. |
+| **S2 Active Green** | `#5BAD63` | Shared | "Signal is live." Warm-shifted oscilloscope green — task in progress, completion pulse, HUD rect glyph. |
 | **S3 Alert Sienna** | `#A03520` | Shared | "Something requires a decision." Burnt sienna — error/alert state, HUD cross-plus glyph. |
 | **H1 HUD Panel Ground** | `#1C1810` | HUD | Background surface of all HUD panels. Slightly darker than W1 — distinct register without cool divergence. |
 | **H2 HUD Border** | `#3A3028` | HUD | 1px panel borders and rule lines. Never used as a fill. |
@@ -246,10 +246,10 @@ Amber is the color of a machine that has been running so long it is warm to the 
 
 *Idle dim rule*: In Agent Idle state, same hue as S1 but luminance drops to ~60%. Do not shift hue toward orange or yellow — only reduce brightness. Hue constancy is what makes "dim amber" read as "same state, less energy" rather than "different state."
 
-**S2 — Active Green** (`#4A9A52`)
+**S2 — Active Green** (`#5BAD63`)
 Green is the working color of analogue instrumentation: oscilloscope traces, radar displays, CRT phosphors under active signal. Green means "signal is live, process is in motion" — not "task succeeded." An agent can be green on a task that hasn't completed yet. The warm shift (note the `9A` in the hex rather than a balanced `4A`) prevents the green from reading as a cool foreign object in an amber room.
 
-*Color system reconciliation*: Section 2 references "4000K neutral-warm green" for the Task Completion pulse. This maps to S2 (`#4A9A52`) at full luminance for the completion flash, returning to S1 amber over `COMPLETION_RETURN_DURATION`. The "4000K" description refers to color temperature impression, not a literal light temperature — S2 is the specific production value.
+*Color system reconciliation*: Section 2 references "4000K neutral-warm green" for the Task Completion pulse. This maps to S2 (`#5BAD63`) at full luminance for the completion flash, returning to S1 amber over `COMPLETION_RETURN_DURATION`. The "4000K" description refers to color temperature impression, not a literal light temperature — S2 is the specific production value.
 
 **S3 — Alert Sienna** (`#A03520`)
 Burnt sienna rather than pure red. Hue ~10–15° on standard 0–360° wheel, saturation ~65%, luminance ~35–40%. The emotional register of the bunker is "controlled operational environment" — NASA Mission Control, not a burning building. Pure reds communicate "evacuate." Sienna communicates "notice this, decide what to do." Visual reference: old rust on a steel door. If the alert color looks like a warning label or stop sign, it is too saturated.
@@ -614,7 +614,7 @@ If the engine's UI framework adds any of these by default, disable them explicit
 
 **Error detail access**: Alert rows are tappable/clickable. Tapping an alert row expands it inline to show a short detail text (max 2 lines at size-S bitmap font). Tap again to collapse. Touch-safe — minimum tap target: 44×44px at display resolution (Godot's minimum interactive size recommendation).
 
-**Contrast ratio**: S2 Active Green (`#4A9A52`) against W2 Institutional Grey-Warm (`#4A4035`) requires WCAG AA verification (4.5:1 minimum) before shipping. The luminance overlap between mid-green and warm grey is the most likely failure point in the palette. Verify with a contrast checker before finalizing color values. Adjust luminance of S2 (raise) or W2 (lower) if needed — do not adjust hue.
+**Contrast ratio (VERIFIED 2026-05-12)**: S2 Active Green over W2 Institutional Grey-Warm (`#4A4035`) was originally `#4A9A52` and computed at **2.90 : 1** — FAILED WCAG 2.1 AA's 3:1 threshold for UI/graphics. S2 has been raised to **`#5BAD63`** which computes at **3.65 : 1** ✅ PASSES. Full verdict, methodology, and remaining contrast pairs to verify are in `design/ux/accessibility-requirements.md` §1.1. Do not regress S2 to the original value.
 
 ---
 

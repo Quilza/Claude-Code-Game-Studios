@@ -35,9 +35,9 @@ This is the expression of **Pillar 2 — Readable at a Glance** and **Pillar 4 �
 
 | Glyph | Color | Hex | Meaning |
 |-------|-------|-----|---------|
-| ● | Green | `#4A9A52` | WORKING — agent actively processing |
+| ● | Green | `#5BAD63` | WORKING — agent actively processing |
 | ▬ | Amber | `#D4882A` | IDLE — agent waiting or available |
-| + | Green | `#4A9A52` | COMPLETED — task just finished (transient, 1.5 s) |
+| + | Green | `#5BAD63` | COMPLETED — task just finished (transient, 1.5 s) |
 | ● | Sienna | `#A03520` | ERRORED — agent has encountered an error |
 | ▬ | Neutral dim `#4A4035` @ ~40% alpha | — | EMPTY — no agent configured for this slot |
 
@@ -107,8 +107,8 @@ This is the expression of **Pillar 2 — Readable at a Glance** and **Pillar 4 �
 |-----------|-------|-------|-------|----------------|
 | EMPTY | ▬ | Neutral `#4A4035` | ~40% | No agent configured for this slot index |
 | IDLE | ▬ | Amber `#D4882A` | 1.0 | ASM signals `"idle"` |
-| WORKING | ● | Green `#4A9A52` | 1.0 | ASM signals `"working"` |
-| COMPLETED | + | Green `#4A9A52` | 1.0 | `beat_fired` received; 1.5 s timer running |
+| WORKING | ● | Green `#5BAD63` | 1.0 | ASM signals `"working"` |
+| COMPLETED | + | Green `#5BAD63` | 1.0 | `beat_fired` received; 1.5 s timer running |
 | ERRORED | ● | Sienna `#A03520` | 1.0 | ASM signals `"errored"` |
 
 Data-quality overlays (applied independently of slot state, except EMPTY):
@@ -311,7 +311,7 @@ All panel rendering uses the locked project color system. No new colors:
 | Element | Color | Hex | Notes |
 |---------|-------|-----|-------|
 | Panel background | Void Black | `#0A0A0F` | Dark terminal background; creates contrast for all glyphs |
-| WORKING / COMPLETED glyph | Active Green | `#4A9A52` | Locked palette |
+| WORKING / COMPLETED glyph | Active Green | `#5BAD63` | Locked palette |
 | IDLE glyph | Amber | `#D4882A` | Locked palette |
 | ERRORED glyph | Sienna | `#A03520` | Locked palette |
 | EMPTY slot glyph | Institutional Grey-Warm | `#4A4035` | At `hud_empty_slot_alpha` (~40%) — must read clearly dimmer than IDLE ▬ |
@@ -395,14 +395,14 @@ The Commander's Room HUD (both the status panel and the detail overlay) has **no
 | # | AC | Pass Condition |
 |---|-----|---------------|
 | 4 | IDLE glyph | On ASM `agent_state_changed(id, "idle")`: slot shows ▬ amber `#D4882A` at 1.0 alpha. |
-| 5 | WORKING glyph | On ASM `agent_state_changed(id, "working")`: slot shows ● green `#4A9A52` at 1.0 alpha. |
+| 5 | WORKING glyph | On ASM `agent_state_changed(id, "working")`: slot shows ● green `#5BAD63` at 1.0 alpha. |
 | 6 | ERRORED glyph | On ASM `agent_state_changed(id, "errored")`: slot shows ● sienna `#A03520` at 1.0 alpha. |
 
 **AC Group 3 — COMPLETED Timer**
 
 | # | AC | Pass Condition |
 |---|-----|---------------|
-| 7 | COMPLETED glyph appears | On `beat_fired(id, t)`: slot immediately shows `+` green `#4A9A52`. |
+| 7 | COMPLETED glyph appears | On `beat_fired(id, t)`: slot immediately shows `+` green `#5BAD63`. |
 | 8 | COMPLETED → IDLE revert | After 1.5 s with no interrupting signals (last-known state IDLE): slot reverts to ▬ amber. |
 | 9 | COMPLETED → WORKING revert | Timer expires with last-known state WORKING: slot reverts to ● green. |
 | 10 | COMPLETED → ERRORED revert | Timer expires with last-known state ERRORED: slot reverts to ● sienna. |

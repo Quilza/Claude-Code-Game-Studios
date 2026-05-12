@@ -615,7 +615,7 @@ Every Foundation/Core ADR explicitly addresses PC + HTML5 web. HTTPRequest must 
 
 | # | Question | Resolved by | Blocks |
 |---|----------|-------------|--------|
-| 1 | WCAG AA contrast — Active Green `#4A9A52` against Grey-Warm `#4A4035` and Void Black `#0A0A0F` | Art Director — 30-min check | All HUD + agent sprite production |
+| 1 | ~~WCAG AA contrast — Active Green `#4A9A52` against Grey-Warm `#4A4035`~~ — **RESOLVED 2026-05-12**: S2 shifted to `#5BAD63` (3.65:1 PASS). Remaining: verify S2 over Void Black `#0A0A0F` + S3 Sienna over W2 + HUD font pairs. See `design/ux/accessibility-requirements.md` §1.1 | Art Director | Sprite/HUD production unblocked |
 | 2 | Web export CORS — which AI APIs allow CORS for Godot HTML5? | Data Bridge prototype | ADR-001, ADR-004 |
 | 3 | First AI agent API to target — Claude API, Cursor, others? | User decision before prototype | Data Bridge prototype |
 | 4 | ASM connection-quality reporting mechanism — re-emit Data Bridge signal, or separate? | ASM GDD (blocked) | HUD overlay implementation |

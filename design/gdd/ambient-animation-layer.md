@@ -44,7 +44,7 @@ This is what makes the bunker a place rather than a dashboard. A dashboard is de
 
 8. **State transitions cross-fade, not snap.** When `set_ambient_state()` is called, props transition their animation speed and modulate over `ambient_state_transition_seconds` (0.3s default), using a `Tween`. This prevents the ambient layer from calling attention to itself during state changes — the character animation leads; the props follow quietly.
 
-9. **Brightness-motion budget rule.** A prop may be bright OR fast-cycling, never both simultaneously. Always-on props in their default state must not use agent palette colors (amber `#D4882A`, green `#4A9A52`) — those hues are reserved for state-triggered responses so the eye learns to treat them as signals. Fan blades may spin faster but must use warm grey (desaturated), not amber.
+9. **Brightness-motion budget rule.** A prop may be bright OR fast-cycling, never both simultaneously. Always-on props in their default state must not use agent palette colors (amber `#D4882A`, green `#5BAD63`) — those hues are reserved for state-triggered responses so the eye learns to treat them as signals. Fan blades may spin faster but must use warm grey (desaturated), not amber.
 
 10. **MVP prop counts.** Commander's Room: 12 props. Agent Room: 8 props per room. The bunker has at least 3–4 props mid-cycle at any moment for continuous peripheral motion.
 
@@ -204,7 +204,7 @@ All props follow the Art Bible standard: PNG-8, Aseprite source, 8×8px art modu
 
 **Color rules (enforced — not suggestions):**
 
-- **Always-on props:** warm grey palette only (`#5A5048`, `#7A6F64`). Must NOT use amber `#D4882A` or green `#4A9A52` in their default state — those hues are reserved for state signals.
+- **Always-on props:** warm grey palette only (`#5A5048`, `#7A6F64`). Must NOT use amber `#D4882A` or green `#5BAD63` in their default state — those hues are reserved for state signals.
 - **State-sensitive IDLE:** dim amber variant (`#8A5018` — desaturated). Subtle enough to not signal "active."
 - **State-sensitive WORKING:** full amber `#D4882A`. The eye should recognize this as the same amber as the agent character WORKING state.
 - **State-sensitive ERRORED:** pulses between off/dark and sienna `#A03520`. Arrhythmic timing per F3.
