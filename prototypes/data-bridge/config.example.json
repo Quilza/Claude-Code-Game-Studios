@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "mock": true,
+  "_comment": "Set mock=false and fill in token/endpoint to hit a real Claude API. Save this as 'config.json' (gitignored) or copy to your user:// directory. See README.md.",
+  "agents": [
+    {
+      "id": "claude_dev",
+      "agent_type": "default",
+      "display_name": "Claude (mock)",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "model": "claude-3-5-haiku-latest",
+      "token": "YOUR_ANTHROPIC_API_KEY_HERE",
+      "poll_interval": 5.0
+    },
+    {
+      "id": "claude_dev_2",
+      "agent_type": "default",
+      "display_name": "Claude (mock 2)",
+      "endpoint": "",
+      "model": "",
+      "token": "",
+      "poll_interval": 7.0
+    }
+  ]
+}

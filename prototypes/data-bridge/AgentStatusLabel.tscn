@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3 uid="uid://bagentstatuslabel01"]
+
+[ext_resource type="Script" path="res://scripts/agent_status_label.gd" id="1"]
+
+[node name="AgentStatusLabel" type="VBoxContainer"]
+custom_minimum_size = Vector2(440, 0)
+script = ExtResource("1")

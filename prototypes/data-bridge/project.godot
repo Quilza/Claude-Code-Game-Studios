@@ -1,0 +1,39 @@
+; Engine configuration file.
+; Sprint 1 prototype — Data Bridge
+; See: production/sprints/sprint-1.md
+;
+; This is a STANDALONE Godot project for prototype isolation. It is NOT the
+; main project — code here is throwaway-tier per the prototype agent rules.
+; Findings + locked patterns get promoted into the main project's
+; src/integration/data_bridge.gd in Sprint 2+.
+
+config_version=5
+
+[application]
+
+config/name="Situation Room — Data Bridge Prototype"
+config/description="Sprint 1 prototype: validate HTTP polling against a real AI API, capture state-vocabulary findings, unblock ADR-0007."
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[autoload]
+
+ConfigurationLoader="*res://scripts/configuration_loader.gd"
+
+[display]
+
+window/size/viewport_width=480
+window/size/viewport_height=270
+window/size/window_width_override=1920
+window/size/window_height_override=1080
+window/stretch/mode="viewport"
+window/stretch/aspect="keep"
+window/stretch/scale_mode="integer"
+window/dpi/allow_hidpi=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/canvas_textures/default_texture_filter=0

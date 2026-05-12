@@ -1,0 +1,7 @@
+# Local config — contains real API token, must never be committed
+config.json
+
+# Godot project metadata (regenerable)
+.godot/
+.import/
+*.import
