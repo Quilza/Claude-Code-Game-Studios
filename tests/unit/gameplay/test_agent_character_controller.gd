@@ -404,3 +404,85 @@ func test_acc_joins_agent_characters_group_at_ready() -> void:
 	assert_true(acc.is_in_group(ACCScript.AGENT_CHARACTERS_GROUP),
 		"ACC must self-join the peer-discovery group for social waypoint")
 	acc.queue_free()
+
+
+# ─── ERRORED freeze integrity (GDD Rule 10) ──────────────────────────────────
+
+func test_working_signal_during_errored_does_not_exit_freeze() -> void:
+	# Bug: a rapid working/errored cycle from upstream (mock cycle, real-world
+	# transient errors) would re-trigger _enter_state(WORKING) on every
+	# `working` signal, cancelling the freeze timer mid-flight. Result: the
+	# 30s frozen visual never plays through. Fix: ignore working during
+	# ERRORED; freeze runs to completion.
+	# Arrange
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	acc._test_force_state(ACCScript.BehavioralState.ERRORED)
+	# Sanity check — error timer was created
+	assert_not_null(acc._error_freeze_timer, "ERRORED entry must create freeze timer")
+	var original_timer: Timer = acc._error_freeze_timer
+
+	# Act — fire a WORKING signal as if the next poll dispatched.
+	acc._on_asm_state_changed("agent_a", AsmScript.STATE_WORKING, AsmScript.STATE_ERRORED, "agent_a")
+
+	# Assert — still in ERRORED, same timer instance (not recreated).
+	assert_eq(acc.get_behavioral_state(), ACCScript.BehavioralState.ERRORED,
+		"Behavioral state must remain ERRORED")
+	assert_eq(acc._error_freeze_timer, original_timer,
+		"Freeze timer must not be cancelled + recreated")
+	acc.queue_free()
+
+
+func test_idle_signal_during_errored_does_not_exit_freeze() -> void:
+	# Same reasoning as the WORKING-during-ERRORED test: ASM may emit `idle`
+	# (e.g. as the agent state decays after a `completed` somewhere in the
+	# cycle) while ACC is frozen. The freeze must survive.
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	acc._test_force_state(ACCScript.BehavioralState.ERRORED)
+	var original_timer: Timer = acc._error_freeze_timer
+
+	# Act
+	acc._on_asm_state_changed("agent_a", AsmScript.STATE_IDLE, AsmScript.STATE_ERRORED, "agent_a")
+
+	# Assert
+	assert_eq(acc.get_behavioral_state(), ACCScript.BehavioralState.ERRORED)
+	assert_eq(acc._error_freeze_timer, original_timer)
+	acc.queue_free()
+
+
+func test_completed_signal_during_errored_still_transitions_to_beat() -> void:
+	# Sanity: only WORKING and IDLE are filtered during ERRORED. COMPLETED
+	# is a meaningful upstream signal (the failed call recovered AND the
+	# next call already completed) — it overrides the freeze.
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	acc._test_force_state(ACCScript.BehavioralState.ERRORED)
+
+	# Act
+	acc._on_asm_state_changed("agent_a", AsmScript.STATE_COMPLETED, AsmScript.STATE_ERRORED, "agent_a")
+
+	# Assert — transitioned out of ERRORED into COMPLETED_BEAT.
+	assert_eq(acc.get_behavioral_state(), ACCScript.BehavioralState.COMPLETED_BEAT)
+	acc.queue_free()
+
+
+func test_errored_entry_cancels_in_flight_walk_target() -> void:
+	# Bug: ERRORED entry hook created a freeze timer but did NOT clear
+	# _has_walk_target. _physics_process kept lerping the character toward
+	# its previous wander destination through the entire "freeze" window —
+	# visually contradicting the GDD Rule 10 "freeze in place" mandate.
+	# Arrange — get into IDLE_WANDERING with a known walk target.
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	acc._test_force_state(ACCScript.BehavioralState.IDLE_WANDERING)
+	acc._set_walk_target(Vector2(200.0, 100.0))
+	assert_true(acc.has_walk_target(), "Precondition: walk target set")
+
+	# Act — transition to ERRORED.
+	acc._test_force_state(ACCScript.BehavioralState.ERRORED)
+
+	# Assert — walk target cancelled.
+	assert_false(acc.has_walk_target(),
+		"ERRORED entry must clear in-flight walk target (GDD Rule 10: freeze in place)")
+	acc.queue_free()

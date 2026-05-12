@@ -257,9 +257,16 @@ func _on_asm_state_changed(fired_id: String, new_state: String, _previous: Strin
 	# Drive behavioral state machine per GDD Rule 5
 	match new_state:
 		AgentStateMachine.STATE_WORKING:
-			# Immediate interrupt per Rule 5 — unless in COMPLETED_BEAT (Rule queued)
+			# Immediate interrupt per Rule 5 — unless in COMPLETED_BEAT
+			# (Rule 5b: queue until beat finishes) or ERRORED (Rule 10:
+			# freeze stays intact for the full error_timeout_seconds — a
+			# rapid working/errored cycle from upstream must not starve
+			# the freeze. The frozen visual is the legibility signal the
+			# GDD's Pillar 1 + Pillar 3 depend on.)
 			if _behavioral_state == BehavioralState.COMPLETED_BEAT:
 				_queued_working_during_beat = true
+			elif _behavioral_state == BehavioralState.ERRORED:
+				pass   # ignore — freeze runs to completion
 			else:
 				_enter_state(BehavioralState.WORKING)
 		AgentStateMachine.STATE_COMPLETED:
@@ -268,7 +275,12 @@ func _on_asm_state_changed(fired_id: String, new_state: String, _previous: Strin
 			_enter_state(BehavioralState.ERRORED)
 		AgentStateMachine.STATE_IDLE:
 			# Returning to idle (e.g., completed → decay → idle) — enter wandering.
-			_enter_state(BehavioralState.IDLE_WANDERING)
+			# Same reasoning as WORKING-during-ERRORED above: if we're frozen,
+			# stay frozen until the timer fires.
+			if _behavioral_state == BehavioralState.ERRORED:
+				pass
+			else:
+				_enter_state(BehavioralState.IDLE_WANDERING)
 
 
 # ─── Behavioral state machine (per Rule 4) ───────────────────────────────────
@@ -314,6 +326,11 @@ func _enter_state(new_state: int) -> void:
 			_completed_beat_timer.timeout.connect(_on_completed_beat_finished)
 			_completed_beat_timer.start()
 		BehavioralState.ERRORED:
+			# GDD Rule 10: "character freezes at its current position".
+			# Cancel any in-flight walk so _physics_process doesn't keep
+			# lerping toward the previous target while the freeze visual is
+			# meant to be showing.
+			_has_walk_target = false
 			_error_freeze_timer = Timer.new()
 			_error_freeze_timer.one_shot = true
 			_error_freeze_timer.wait_time = _error_timeout_sec
