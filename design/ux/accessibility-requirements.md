@@ -17,18 +17,34 @@ The Situation Room is a developer tool with game aesthetics. The user is presume
 
 ## 1. Visual
 
-### 1.1 Color contrast (WCAG 2.1 AA)
+### 1.1 Color contrast (WCAG 2.1 AA) — VERIFIED 2026-05-12
 
-| Element | Contrast required | Status |
-|---|---|---|
-| Normal text (< 18pt regular / 14pt bold) on background | ≥ 4.5:1 | OPEN — verify per palette below |
-| Large text (≥ 18pt regular / 14pt bold) on background | ≥ 3:1 | OPEN |
-| UI components + meaningful graphics | ≥ 3:1 | OPEN |
+| Pair | Computed ratio | Threshold | Result |
+|---|---|---|---|
+| S2 `#4A9A52` over W2 `#4A4035` (original palette) | **2.90 : 1** | 3:1 (UI / graphics) | ❌ **FAILS** |
+| S2 `#4A9A52` over W2 `#4A4035` | 2.90 : 1 | 4.5:1 (normal text) | ❌ FAILS |
+| **S2 `#5BAD63` over W2 `#4A4035` (LOCKED corrected)** | **3.65 : 1** | 3:1 | ✅ **PASSES** |
+| S2 `#5BAD63` over W2 `#4A4035` | 3.65 : 1 | 4.5:1 (normal text) | ❌ FAILS — only S2 over background is graphic, never text |
 
-**Action item carried from 2026-05-11 gate-check** (Art Director CONCERNS):
-- Verify `#4A9A52` (S2 Active Green) against `#4A4035` (W2 Institutional Grey-Warm) — risk of failing 4.5:1 ratio.
-- If failure: shift S2 toward `#5BAD63` or darker W2 toward `#3A2F26`.
-- This check must happen **before** any agent sprite or HUD chrome production begins.
+**Decision (2026-05-12)**: Shift S2 Active Green from `#4A9A52` → **`#5BAD63`** (Option A from the gate-check verdict).
+
+Rationale:
+- Lower rework footprint than darkening W2 (W2 is the dominant wall colour everywhere; S2 only appears as agent state tints + HUD slot tints)
+- Preserves the "warm-amber + cool-green" palette intent
+- Lands a comfortable 3.65:1 margin above the 3:1 floor
+- Computed relative luminances: L(S2 new) = 0.3293, L(W2) = 0.0538
+
+**Required follow-ups**:
+- Update `art-bible.md` colour palette table — replace `#4A9A52` with `#5BAD63`
+- Update `design/registry/entities.yaml` if it references the colour literal anywhere
+- All TCB / ACC / HUD sprites and tints that use S2 — apply the new hex when art production starts (none have been authored yet, so zero retrofit)
+
+**Other pairs still to verify** (do before sprite production starts, not blocking gate):
+- S3 Sienna `#A03520` over W2 — alert state contrast
+- HUD bitmap font color (TBD) over status panel background (TBD)
+- HUD bitmap font color over slot interior background
+
+Methodology: WCAG 2.1 relative luminance formula. Per-channel: c → c/255 → if <0.04045 then linear=c/12.92 else linear=((c+0.055)/1.055)^2.4. L = 0.2126·R + 0.7152·G + 0.0722·B. Contrast = (L₁+0.05)/(L₂+0.05).
 
 ### 1.2 Color independence
 
