@@ -1,13 +1,14 @@
 # Control Manifest — The Situation Room
 
-**Manifest Version**: 2026-05-12.1
+**Manifest Version**: 2026-05-12.2
 **Engine**: Godot 4.6.2
-**Source**: 13 Accepted ADRs (0001–0014 minus 0007 BLOCKED) + amendments per `verify-sweep-2026-05-12.md`
+**Source**: 14 Accepted ADRs (0001–0014) + amendments per `verify-sweep-2026-05-12.md` + Sprint 1 ADR-0007 finalisation
 **Status**: Active
 
 **Version log**:
 - `2026-05-12` — initial extraction from 13 Accepted ADRs
 - `2026-05-12.1` — post-engine-verify-sweep amendments: AudioContext unlock pattern upgraded (ADR-0004 A1); HUD recursive-IGNORE guardrail (ADR-0011 A1); world Tab-handler restriction (ADR-0011 A2); Retina smoke-test list expanded (ADR-0013 A1); VERIFY ledger updated with sweep verdicts
+- `2026-05-12.2` — **ADR-0007 Agent State Vocabulary** authored + Accepted after Sprint 1 Data Bridge prototype against real Anthropic API. All 14 architectural ADRs now in final state. New Agent State Machine layer added below.
 
 > **For programmers**: This is your flat rules sheet. Required / Forbidden / Guardrails per layer. Extracted mechanically from Accepted ADRs. Where you need the **why**, read the ADR. Where you need the **what**, this manifest is enough.
 >
@@ -221,19 +222,34 @@
 
 ---
 
+## Agent State Machine (ASM) layer
+
+### Required (ADR-0007 + ADR-0005 + ADR-0006)
+
+- **Vocabulary** (exactly four states): `idle`, `working`, `completed`, `errored`. String values (NOT StringName per ADR-0001 contract).
+- **Connection state stays separate** from agent state (orthogonality). HUD composes both per ADR-0011.
+- **Derivation rule**: ASM parses `agent_response_received(agent_id, payload)` JSON. Match on `stop_reason`:
+  - `end_turn`, `max_tokens`, `stop_sequence` → `completed`
+  - `tool_use`, `pause_turn` → `working`
+  - `refusal` → `errored`
+  - HTTP error envelope (`type: "error"`) → `errored`
+  - Unparseable JSON → `errored`
+  - Unknown `stop_reason` → `completed` + `push_warning` (conservative fallback)
+- **`completed` is transient** — Timer of `COMPLETED_DECAY_SEC = 1.5` schedules decay back to `idle` on entry. Matches TR-hud-004 slot glyph timer.
+- **`task_completed(agent_id)` emits on every entry into `completed`** (per ADR-0005). TCB subscribes.
+- **`working` requires in-flight tracking** — Data Bridge must expose `is_request_in_flight(agent_id)` or signal dispatch/settle. Pending ADR-0001 amendment.
+- Public read-only API: `get_agent_state(id) -> String`, `get_agent_stats(id) -> Dictionary`, `is_agent_known(id) -> bool` (per ADR-0006 Tier 3).
+
+### Forbidden
+- `agent_state_stringname` — agent state strings must be `String`, not `StringName` (consistency with ADR-0001 `agent_id: String`).
+- `completed_persistent_no_decay` — `completed` must decay to `idle` after 1.5s. Stale glyphs break the "satisfying feedback then return to ambient" pillar.
+- `errored_auto_decay` — `errored` must NOT auto-decay. It persists until the next non-error response.
+- `task_completed_from_non_completed_entry` — `task_completed` fires ONLY on transitions INTO `completed`, never on transitions out or on `idle/working/errored` directly.
+- `inline_stop_reason_match` — production code must use the canonical mapping table from ADR-0007, not ad-hoc inline `match` blocks in random consumers.
+
 ## Blocked / pending
 
-| ADR | Status | Unblock condition |
-|---|---|---|
-| ADR-0007 Agent State Vocabulary | NOT WRITTEN | Data Bridge prototype answers Qs 4-5 (state vocabulary from real-API payload shapes) |
-
-Until ADR-0007 is Accepted, the following 4 TRs have provisional contracts:
-- TR-asm-002 (state vocabulary)
-- TR-asm-004 (connection-quality reporting mechanism)
-- TR-asm-005 (parses Data Bridge raw payload into canonical state)
-- TR-asm-006 (per-agent stats dictionary via `get_agent_stats(id)`)
-
-Implementation stories that depend on these TRs cannot pass `/story-readiness` until ADR-0007 Accepted.
+**None.** All 14 ADRs are Accepted as of 2026-05-12 pm. No architectural blocks remain in the Pre-Production critical path.
 
 ---
 
@@ -256,6 +272,8 @@ Implementation stories that depend on these TRs cannot pass `/story-readiness` u
 | 18 | Theme `default_font` propagates to nested Control subtrees | 0012 | **PASS** (HIGH) | Closed — GUT test sufficient |
 | 19 | `AnimationLibrary` assignment via `add_animation_library(&"", lib)` is canonical | 0009 | **PASS** (HIGH) | — closed |
 | 20 | `animation_finished` fires exactly once for LOOP_NONE animation at end-of-track | 0009 | **CONCERN** (MED) | GUT test `test_completed_finishes_reverts_to_current_asm_state` |
+| 21 | `tool_use` and `pause_turn` stop_reasons map to `working` correctly in production | 0007 | OPEN | Smoke test when first non-trivial agent task surfaces them |
+| 22 | `refusal` stop_reason maps to `errored` and slot renders correctly | 0007 | OPEN | Rare event; validate when first observed |
 
 ### Empirical smoke tests still required before code lands
 

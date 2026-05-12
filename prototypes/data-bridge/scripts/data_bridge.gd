@@ -162,9 +162,9 @@ func _dispatch_http(agent_id: String) -> void:
 	# Sprint 1 stub body — cheapest viable Claude API call.
 	# Real Sprint 1 work: discover what shape we want here.
 	var body_dict: Dictionary = {
-		"model": String(ch.config.get("model", "claude-3-5-haiku-latest")),
-		"max_tokens": 1,
-		"messages": [{"role": "user", "content": "ping"}]
+		"model": String(ch.config.get("model", "claude-haiku-4-5-20251001")),
+		"max_tokens": 50,
+		"messages": [{"role": "user", "content": "Reply with exactly one short word."}]
 	}
 	var body: String = JSON.stringify(body_dict)
 	ch.in_flight = true
@@ -183,6 +183,9 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		_handle_failure(agent_id, "result=%d" % result)
 		return
 	if response_code < 200 or response_code >= 300:
+		# Sprint 1 findings capture: log the error response body so we can diagnose HTTP failures
+		var err_body: String = body.get_string_from_utf8()
+		print("[DataBridge:%s] HTTP %d error body: %s" % [agent_id, response_code, err_body])
 		_handle_failure(agent_id, "http %d" % response_code)
 		return
 	var payload: String = body.get_string_from_utf8()
@@ -194,6 +197,8 @@ func _handle_success(agent_id: String, payload: String) -> void:
 	ch.failure_count = 0
 	ch.current_backoff = 0.0
 	_transition_state(agent_id, STATE_CONNECTED)
+	# Sprint 1 findings capture: log every payload to stdout for harvest
+	print("[DataBridge:%s] RESPONSE (len=%d): %s" % [agent_id, payload.length(), payload])
 	agent_response_received.emit(agent_id, payload)
 	_reschedule(agent_id)
 

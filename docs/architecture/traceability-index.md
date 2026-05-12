@@ -6,16 +6,16 @@
 
 ## Coverage Summary
 
-| Metric | 2026-05-11 | 2026-05-12 |
-|---|---|---|
-| Total requirements (per architecture.md baseline) | ~70 | ~70 (60 in registry) |
-| Covered by **Accepted** ADRs | 0 | **56 (~93%)** |
-| Partial / GDD-self-sufficient | ~9 | ~0 (most folded into Accepted ADR coverage) |
-| Gap (no ADR) | ~25 (~36%) | **0** |
-| Blocked (ADR-0007 awaits Data Bridge prototype) | ~6 | 4 (TR-asm-002, 004, 005, 006) |
+| Metric | 2026-05-11 | 2026-05-12 (am) | 2026-05-12 (pm — post-Sprint-1) |
+|---|---|---|---|
+| Total requirements (per architecture.md baseline) | ~70 | ~70 (60 in registry) | ~70 (60 in registry) |
+| Covered by **Accepted** ADRs | 0 | 56 (~93%) | **60 (100%)** |
+| Partial / GDD-self-sufficient | ~9 | ~0 | 0 |
+| Gap (no ADR) | ~25 (~36%) | 0 | **0** |
+| Blocked (ADR-0007 awaits Data Bridge prototype) | ~6 | 4 (TR-asm-002, 004, 005, 006) | **0 — unblocked by Sprint 1** |
 
-> ✅ **13 of 14 ADRs Accepted as of 2026-05-12.** ADR-0007 correctly held as NOT WRITTEN (BLOCKED on Data Bridge prototype Qs 4-5).
-> Stories referencing any Accepted ADR may now pass `/story-readiness`.
+> ✅ **14 of 14 ADRs Accepted as of 2026-05-12 pm.** ADR-0007 (Agent State Vocabulary) written + Accepted after Sprint 1 prototype harvested real Anthropic API findings. Source: `prototypes/data-bridge/findings.md` + `docs/architecture/adr-0007-agent-state-vocabulary.md`.
+> Stories referencing any Accepted ADR may now pass `/story-readiness`. No architectural blocks remain in the Pre-Production critical path.
 
 ## TR-ID Mapping (initial registration)
 
@@ -70,11 +70,11 @@ Stable IDs assigned by this review pass. See `tr-registry.yaml` for canonical en
 | TR-ID | Requirement | ADR | Status |
 |---|---|---|---|
 | TR-asm-001 | ASM is sole emitter of `task_completed(agent_id: String)` | ADR-0005 | ✅ Covered (Accepted 2026-05-12) |
-| TR-asm-002 | Agent state vocabulary (`idle/working/completed/errored`) | ADR-0007 | 🔒 BLOCKED — awaits Data Bridge prototype Qs 4-5 |
+| TR-asm-002 | Agent state vocabulary (`idle/working/completed/errored`) | ADR-0007 | ✅ Covered (Accepted 2026-05-12 pm) |
 | TR-asm-003 | Emits `agent_state_changed(agent_id: String, new_state, previous_state)` | ADR-0005 + ADR-0006 | ✅ Covered (Accepted 2026-05-12) |
-| TR-asm-004 | Connection-quality reporting mechanism (HUD OQ-4) | — | ❌ GAP — needs ADR-0007 |
-| TR-asm-005 | Parses Data Bridge raw payload into canonical state | — | 🔒 BLOCKED — needs ADR-0007 |
-| TR-asm-006 | Per-agent stats dictionary exposed via `get_agent_stats(id)` | — | 🔒 BLOCKED — needs ADR-0007 |
+| TR-asm-004 | Connection-quality reporting mechanism (HUD OQ-4) | ADR-0007 | ✅ Covered (Accepted 2026-05-12 pm) — orthogonality decision |
+| TR-asm-005 | Parses Data Bridge raw payload into canonical state | ADR-0007 | ✅ Covered (Accepted 2026-05-12 pm) — derivation rule |
+| TR-asm-006 | Per-agent stats dictionary exposed via `get_agent_stats(id)` | ADR-0007 | ✅ Covered (Accepted 2026-05-12 pm) — read-only API spec |
 
 ### Room System (system: `room`)
 
@@ -171,4 +171,5 @@ None at this time. The TR registry has no prior version to supersede.
 |---|---|---|
 | 2026-05-11 | ~43% (Proposed) | Initial registry creation. 7 ADRs Proposed, 7 missing, 4 cross-doc conflicts identified. |
 | 2026-05-11 (late) | ~43% (Proposed) | 4 cross-doc conflicts resolved; 4 Foundation ADRs flipped to Accepted (0003, 0014, 0002, 0006); ADR-0010 authored. |
-| 2026-05-12 | **~93% (Accepted)** | 5 new ADRs authored (0004, 0009, 0011, 0012, 0013) + 9 ADRs flipped Proposed → Accepted. Only gap is ADR-0007 (BLOCKED — correct). All HIGH-risk engine domains now have Accepted ADR coverage. |
+| 2026-05-12 | ~93% (Accepted) | 5 new ADRs authored (0004, 0009, 0011, 0012, 0013) + 9 ADRs flipped Proposed → Accepted. Only gap is ADR-0007 (BLOCKED — correct). All HIGH-risk engine domains now have Accepted ADR coverage. |
+| 2026-05-12 pm | **100% (Accepted)** | Sprint 1 Data Bridge prototype against real Anthropic API (`claude-haiku-4-5-20251001`) harvested 11 successful payloads. ADR-0007 Agent State Vocabulary authored + Accepted from empirical findings. 4 TRs unblocked (TR-asm-002, 004, 005, 006). All 14 ADRs now in final state. Last architectural block in Pre-Production critical path is closed. |

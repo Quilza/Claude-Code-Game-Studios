@@ -5,3 +5,4 @@ config.json
 .godot/
 .import/
 *.import
+list-models.ps1
