@@ -57,6 +57,10 @@ toggle_mute={
 ]
 }
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/gut/plugin.cfg")
+
 [rendering]
 
 ; Pixel-art rendering — no filtering, no mipmaps.
