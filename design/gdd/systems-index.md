@@ -44,7 +44,7 @@ Feedback**, **Commander Always Home**, and **Earn Each Room**.
 | 13 | Commander's Room HUD (inferred) | UI | MVP | Designed* | design/gdd/commanders-room-hud.md | Agent State Machine, Room System, Task Completion Beat |
 | 14 | History/Activity Log | UI | Alpha | Not Started | — | Agent State Machine, Room System |
 | 15 | State Persistence (inferred) | Persistence | Alpha | Not Started | — | Room System, Agent State Machine, History/Activity Log |
-| 16 | Main Scene Bootstrap (inferred) | Architecture | — | — | — | All systems — see note below |
+| 16 | Main Scene Bootstrap | Architecture | MVP | Designed | design/gdd/main-scene-bootstrap.md | All systems — see note below |
 
 > **Note on #16**: Main Scene Bootstrap defines the Godot scene hierarchy, autoload
 > initialization order, and signal wiring between all systems. It is designed last (after
