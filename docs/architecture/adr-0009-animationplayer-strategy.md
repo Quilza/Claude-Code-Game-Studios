@@ -139,9 +139,14 @@ const ASM_STATE_TO_ANIM: Dictionary = {
 func _ready() -> void:
     AgentStateMachine.agent_state_changed.connect(_on_agent_state_changed.bind(agent_id))
 
-func _on_agent_state_changed(bound_id: String, _id: String, new_state: String, _prev: String) -> void:
-    if bound_id != agent_id:
-        return  # defensive — .bind should have filtered, but guard
+# Godot 4 Callable.bind() passes bound args AFTER signal args. Handler
+# signature is therefore (fired_id, new_state, prev, bound_id) — NOT
+# (bound_id, fired_id, ...). Verified against
+# https://docs.godotengine.org/en/4.3/classes/class_callable.html#class-callable-method-bind
+# and integration test tests/integration/test_acc_walks_to_workstation.gd.
+func _on_agent_state_changed(fired_id: String, new_state: String, _prev: String, bound_id: String) -> void:
+    if bound_id != fired_id:
+        return  # filter — only respond to our own agent's state
     var anim_name: StringName = ASM_STATE_TO_ANIM.get(StringName(new_state), &"idle")
     if animation_player.current_animation != anim_name:
         animation_player.play(anim_name)

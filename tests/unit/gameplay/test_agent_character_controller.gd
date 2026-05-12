@@ -234,3 +234,72 @@ func test_physics_process_step_overshoot_snaps_to_target() -> void:
 	assert_eq(acc.position, Vector2(1.5, 0.0))
 	assert_false(acc.has_walk_target())
 	acc.queue_free()
+
+
+# ─── Placeholder visual + AnimationPlayer self-bootstrap (ADR-0009) ──────────
+
+func test_acc_creates_body_color_rect_placeholder() -> void:
+	# Arrange / Act — _ready() should self-create a Body ColorRect.
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Assert
+	var body: Node = acc.get_node_or_null(^"Body")
+	assert_not_null(body, "Body placeholder must be auto-created")
+	assert_true(body is ColorRect, "Body must be a ColorRect placeholder")
+	assert_eq((body as ColorRect).size, Vector2(16, 16))
+	acc.queue_free()
+
+
+func test_acc_creates_animation_player_when_not_wired_at_scene_author() -> void:
+	# Arrange / Act
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Assert
+	assert_not_null(acc.animation_player, "AnimationPlayer must be auto-created when unwired")
+	assert_true(acc.animation_player.active, "AnimationPlayer.active must be true per ADR-0009 VERIFY-6")
+	acc.queue_free()
+
+
+func test_acc_animation_player_has_placeholder_library_attached() -> void:
+	# Arrange / Act
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Assert — default-namespace library is present with the 4 anims.
+	assert_true(acc.animation_player.has_animation_library(&""))
+	assert_true(acc.animation_player.has_animation(&"idle"))
+	assert_true(acc.animation_player.has_animation(&"working"))
+	assert_true(acc.animation_player.has_animation(&"completed"))
+	assert_true(acc.animation_player.has_animation(&"errored"))
+	acc.queue_free()
+
+
+func test_acc_plays_idle_animation_after_ready() -> void:
+	# Arrange / Act
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Assert — idle is playing as the initial state per _ready().
+	assert_eq(acc.animation_player.current_animation, "idle")
+	acc.queue_free()
+
+
+func test_acc_completed_animation_finished_reverts_to_idle() -> void:
+	# Per ADR-0009 §"One-Shot Animation Revert": when `completed` finishes,
+	# ACC plays `idle`.
+	# Arrange
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Force `completed` to be the playing anim, then fire the finished signal.
+	acc.animation_player.play(&"completed")
+	# Act — manually invoke the handler (signal will fire on its own in
+	# production once the 0.5s anim ends; tests don't run real-time).
+	acc._on_animation_finished(&"completed")
+	# Assert
+	assert_eq(acc.animation_player.current_animation, "idle")
+	acc.queue_free()
+
+
+func test_acc_uses_errored_anim_name_not_errored_freeze() -> void:
+	# Regression: ACC's ASM_STATE_TO_ANIM previously mapped "errored" to
+	# &"errored_freeze", which isn't in the placeholder library. Aligned to
+	# ADR-0009 §Shared Asset table (single `errored` anim).
+	assert_eq(ACCScript.ASM_STATE_TO_ANIM[AsmScript.STATE_ERRORED], &"errored")

@@ -103,6 +103,22 @@ func test_acc_position_advances_toward_workstation_over_physics_frames() -> void
 
 # ─── Idle wander target ──────────────────────────────────────────────────────
 
+func test_working_signal_drives_animation_player_to_working_anim() -> void:
+	# End-to-end: ASM.agent_state_changed → ACC.._on_asm_state_changed →
+	# _play_animation_for_state("working") → AnimationPlayer.play("working").
+	# Verifies ADR-0009 dispatch + Tier 2 .bind() arg order.
+	# Arrange
+	var stack: Dictionary = _make_stack("claude_dev")
+	var asm: Node = stack["asm"]
+	var acc: AgentCharacterController = stack["acc"]
+	assert_eq(acc.animation_player.current_animation, "idle", "Precondition: idle at start")
+	# Act
+	asm.agent_state_changed.emit("claude_dev", AsmScript.STATE_WORKING, AsmScript.STATE_IDLE)
+	# Assert
+	assert_eq(acc.animation_player.current_animation, "working")
+	_cleanup(stack)
+
+
 func test_idle_wandering_picks_target_inside_own_room_bounds() -> void:
 	# Arrange — ACC enters IDLE_WANDERING in _ready() (post-assign).
 	var stack: Dictionary = _make_stack("claude_dev")

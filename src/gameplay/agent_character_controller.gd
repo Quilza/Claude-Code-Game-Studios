@@ -32,13 +32,26 @@ enum BehavioralState {
 }
 
 
+# ─── Preloaded helpers ───────────────────────────────────────────────────────
+
+## Preloaded (rather than class_name'd) so the Godot 4.3 global-class index
+## doesn't need a project reimport before this file compiles. Equivalent to
+## the class_name lookup at runtime.
+const AnimFactory = preload("res://src/gameplay/agent_default_animation_factory.gd")
+
+
 # ─── ASM state → animation name mapping (per ADR-0009) ───────────────────────
 
+## Names must match the AnimationLibrary keys in
+## AnimFactory.ANIM_*. The `errored_freeze` /
+## `errored_resigned` distinction in the GDD §Sprite & Animation table is a
+## Phase 2 concern (separate sprite rows); the placeholder library uses a
+## single `errored` anim for both freeze and resigned phases.
 const ASM_STATE_TO_ANIM: Dictionary = {
 	"idle": &"idle",
 	"working": &"working",
 	"completed": &"completed",
-	"errored": &"errored_freeze",
+	"errored": &"errored",
 }
 
 
@@ -97,9 +110,13 @@ func _ready() -> void:
 		return
 	_rng.randomize()
 	_load_tuning()
+	_ensure_placeholder_visual_and_animation()
 	_subscribe_to_asm()
 	_position_at_workstation()
 	_enter_state(BehavioralState.IDLE_WANDERING)
+	# Start the idle animation immediately so resting agents have visible motion.
+	if animation_player != null:
+		animation_player.play(&"idle")
 
 
 # ─── Physics movement (Phase 1 direct lerp) ──────────────────────────────────
@@ -246,12 +263,67 @@ func _on_error_freeze_finished() -> void:
 
 # ─── Animation (per ADR-0009) ────────────────────────────────────────────────
 
+## Ensures the placeholder Body ColorRect + AnimationPlayer exist as children
+## of this ACC. Idempotent: if either is already wired at scene-author time
+## (via @export), this method preserves them. Otherwise it constructs the
+## minimum viable substrate per ADR-0009 §345 (placeholder library acceptable).
+##
+## Replace with real authored .tscn templates when sprite assets land.
+func _ensure_placeholder_visual_and_animation() -> void:
+	# 1. Body (ColorRect placeholder) — child of ACC, 16x16 px, centered on
+	#    the character's origin via -8,-8 offset. Color picked from agent_type.
+	if get_node_or_null(^"Body") == null:
+		var body: ColorRect = ColorRect.new()
+		body.name = "Body"
+		body.size = Vector2(16, 16)
+		body.position = Vector2(-8, -8)
+		body.color = AnimFactory.body_color_for_agent_type(_resolve_agent_type())
+		body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(body)
+	# 2. AnimationPlayer — if scene author didn't wire one, build one now and
+	#    attach the placeholder library.
+	if animation_player == null:
+		var ap: AnimationPlayer = AnimationPlayer.new()
+		ap.name = "AnimationPlayerStub"
+		add_child(ap)
+		animation_player = ap
+	# 3. Attach the placeholder library and activate the mixer (VERIFY-6).
+	var lib: AnimationLibrary = AnimFactory.build_placeholder_library()
+	# add_animation_library returns OK or ERR_ALREADY_EXISTS; latter only
+	# fires if a real .tres lib was pre-attached at scene-author time.
+	if not animation_player.has_animation_library(&""):
+		animation_player.add_animation_library(&"", lib)
+	animation_player.active = true
+	# 4. Wire the one-shot revert for `completed` per ADR-0009 §Rule.
+	if not animation_player.animation_finished.is_connected(_on_animation_finished):
+		animation_player.animation_finished.connect(_on_animation_finished)
+
+
+## Reads agent_type from ConfigurationLoader for body-color selection.
+## Falls back to "default" when ConfigLoader is unavailable (test paths).
+func _resolve_agent_type() -> String:
+	if not _config_loader_available():
+		return "default"
+	var agent: Dictionary = ConfigurationLoader.get_agent(agent_id)
+	if agent.is_empty():
+		return "default"
+	return String(agent.get("agent_type", "default"))
+
+
 func _play_animation_for_state(asm_state: String) -> void:
 	if animation_player == null:
 		return
 	var anim_name: StringName = ASM_STATE_TO_ANIM.get(asm_state, &"idle")
 	if animation_player.current_animation != anim_name:
 		animation_player.play(anim_name)
+
+
+## ADR-0009 one-shot revert: when `completed` (LOOP_NONE) finishes, return
+## to idle. Other anims either loop or are explicitly replaced by the next
+## state transition, so no revert is needed for them.
+func _on_animation_finished(anim_name: StringName) -> void:
+	if anim_name == &"completed" and animation_player != null:
+		animation_player.play(&"idle")
 
 
 # ─── Position helpers ────────────────────────────────────────────────────────
