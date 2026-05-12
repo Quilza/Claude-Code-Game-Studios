@@ -31,7 +31,7 @@ Feedback**, **Commander Always Home**, and **Earn Each Room**.
 |---|-------------|----------|----------|--------|------------|------------|
 | 1 | Configuration Loader (inferred) | Integration | MVP | Designed | design/gdd/configuration-loader.md | — |
 | 2 | Data Bridge | Integration | MVP | Designed* | design/gdd/data-bridge.md | Configuration Loader |
-| 3 | Agent State Machine (inferred) | Integration | MVP | Not Started | — | Data Bridge |
+| 3 | Agent State Machine | Integration | MVP | Designed | design/gdd/agent-state-machine.md | Data Bridge, Configuration Loader |
 | 4 | Audio Manager | Audio | MVP | Designed | design/gdd/audio-manager.md | — |
 | 5 | TileMap Renderer (inferred) | Core | MVP | Designed | design/gdd/tilemap-renderer.md | — |
 | 6 | Room System (inferred) | Core | MVP | Designed | design/gdd/room-system.md | Configuration Loader |
