@@ -70,8 +70,52 @@ const RESIGNED_IDLE_SPEED_MULTIPLIER: float = 0.6
 # the swap is contained to `_physics_process`.
 const V_BASE_PX_PER_SEC: float = 40.0          # GDD §Tuning Knobs — v_base
 const ARRIVAL_TOLERANCE_PX: float = 1.0        # within 1px of target = arrived
-const DWELL_OWN_ROOM_MIN_SEC: float = 2.0      # GDD §Idle Wandering — Dwell Times
+
+# ─── Phase 2 weighted wandering (GDD Rules 7 + 8) ────────────────────────────
+
+## Category identifiers — string keys used by recency dict + dwell lookups.
+const CAT_SOCIAL: String = "social"
+const CAT_PROP: String = "prop"
+const CAT_OTHER_ROOM: String = "other_room"
+const CAT_CORRIDOR: String = "corridor"
+const CAT_OWN_ROOM: String = "own_room"
+
+## Base waypoint weights — GDD §Tuning Knobs → Idle Wandering — Waypoint Weights.
+## prop/corridor are 0 in Phase 2 because (a) no ambient_prop scene nodes exist
+## yet and (b) "corridor" is a GDD Open Question — the 2-tile gap between
+## rooms isn't currently owned by any system. Flip back to GDD defaults when
+## those dependencies land (no architectural rework needed).
+const W_SOCIAL_BASE: float = 35.0
+const W_PROP_BASE: float = 0.0                  # GDD default 25; deferred (no props)
+const W_OTHER_ROOM_BASE: float = 20.0
+const W_CORRIDOR_BASE: float = 0.0              # GDD default 15; deferred (no corridor)
+const W_OWN_ROOM_BASE: float = 5.0
+
+## Recency cooldown — after visiting a category, its weight multiplier drops
+## to C_RECENCY_FLOOR (0.2). The multiplier decays back toward 1.0 at
+## RECENCY_DECAY_PER_SEC each second of process time.
+const C_RECENCY_FLOOR: float = 0.2
+const RECENCY_DECAY_PER_SEC: float = 0.1
+
+## Per-category dwell ranges — GDD §Idle Wandering — Dwell Times.
+const DWELL_SOCIAL_MIN_SEC: float = 5.0
+const DWELL_SOCIAL_MAX_SEC: float = 10.0
+const DWELL_PROP_MIN_SEC: float = 4.0
+const DWELL_PROP_MAX_SEC: float = 8.0
+const DWELL_OTHER_ROOM_MIN_SEC: float = 3.0
+const DWELL_OTHER_ROOM_MAX_SEC: float = 6.0
+const DWELL_CORRIDOR_MIN_SEC: float = 0.0
+const DWELL_CORRIDOR_MAX_SEC: float = 0.5
+const DWELL_OWN_ROOM_MIN_SEC: float = 2.0
 const DWELL_OWN_ROOM_MAX_SEC: float = 4.0
+
+## How close to a peer the social picker samples (in tile units). 2 tiles
+## ~= 32px which is "next to" without overlapping.
+const SOCIAL_PEER_RADIUS_TILES: int = 2
+
+## Scene-tree group every ACC joins so peers can find each other for the
+## social waypoint category.
+const AGENT_CHARACTERS_GROUP: StringName = &"agent_characters"
 
 
 # ─── Per-instance config ─────────────────────────────────────────────────────
@@ -101,6 +145,20 @@ var _has_walk_target: bool = false
 var _dwell_timer: Timer = null
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
+# Phase 2 wandering state.
+## Per-category recency multiplier ∈ [C_RECENCY_FLOOR, 1.0]. Drops to floor on
+## category visit; decays back toward 1.0 at RECENCY_DECAY_PER_SEC.
+var _recency: Dictionary = {
+	CAT_SOCIAL: 1.0,
+	CAT_PROP: 1.0,
+	CAT_OTHER_ROOM: 1.0,
+	CAT_CORRIDOR: 1.0,
+	CAT_OWN_ROOM: 1.0,
+}
+## The category of the wander target currently being walked toward (or just
+## arrived at). Drives `_start_dwell()` dwell-range lookup.
+var _current_category: String = ""
+
 
 # ─── Godot lifecycle ─────────────────────────────────────────────────────────
 
@@ -109,6 +167,9 @@ func _ready() -> void:
 		push_error("[ACC] agent_id must be set before _ready()")
 		return
 	_rng.randomize()
+	# Phase 2: join the peer-discovery group so other ACCs can pick us as a
+	# social waypoint target. Must happen before any wander pick fires.
+	add_to_group(AGENT_CHARACTERS_GROUP)
 	_load_tuning()
 	_ensure_placeholder_visual_and_animation()
 	_subscribe_to_asm()
@@ -117,6 +178,23 @@ func _ready() -> void:
 	# Start the idle animation immediately so resting agents have visible motion.
 	if animation_player != null:
 		animation_player.play(&"idle")
+
+
+# ─── Recency decay (Phase 2, GDD Rule 8) ─────────────────────────────────────
+
+## Decays per-category recency multipliers toward 1.0 each frame. Only runs
+## while wandering — other behavioral states don't pick targets so recency
+## state is frozen.
+func _process(delta: float) -> void:
+	if _behavioral_state != BehavioralState.IDLE_WANDERING:
+		return
+	if _recency.is_empty():
+		return
+	var step: float = RECENCY_DECAY_PER_SEC * delta
+	for cat: String in _recency.keys():
+		var cur: float = float(_recency[cat])
+		if cur < 1.0:
+			_recency[cat] = minf(1.0, cur + step)
 
 
 # ─── Physics movement (Phase 1 direct lerp) ──────────────────────────────────
@@ -381,38 +459,234 @@ func _walk_to_workstation() -> void:
 	_set_walk_target(tile_map_renderer.tile_to_world(tile))
 
 
-## Phase 1 idle-wander: picks one random tile inside the agent's own room
-## bounds and walks to it. No social / prop / cross-room sampling — that's
-## Phase 2.
+## Phase 2 weighted idle-wander (GDD Rules 7 + 8).
 ##
-## No-op if room_system or tile_map_renderer is missing (test paths) or if
-## the agent has no assigned room (returns silently).
+## Builds candidate categories with available targets, multiplies each base
+## weight by the per-category recency multiplier, samples one category via
+## weighted random, dispatches to that category's picker, drops the chosen
+## category's recency to C_RECENCY_FLOOR.
+##
+## Falls back to own_room when no other category has candidates (e.g. a
+## single configured agent + a single registered room). Bails silently if
+## even own_room is unavailable (test paths with no room_system).
 func _pick_idle_wander_target() -> void:
 	if room_system == null or tile_map_renderer == null:
 		return
+	# 1. Build the list of available categories with their effective weights.
+	var weights: Dictionary = _build_effective_weights()
+	if weights.is_empty():
+		return
+	# 2. Weighted random pick of category.
+	var chosen: String = _weighted_random_category(weights)
+	if chosen.is_empty():
+		return
+	# 3. Dispatch to the category's picker.
+	var target: Variant = _pick_target_for_category(chosen)
+	if target == null:
+		# Category said it could pick but failed at last mile; bail to avoid
+		# a stuck-at-rest state.
+		return
+	# 4. Set the walk target and apply recency floor for this category.
+	_current_category = chosen
+	_set_walk_target(target as Vector2)
+	_recency[chosen] = C_RECENCY_FLOOR
+
+
+## Returns {category → effective_weight} for categories that (a) have a
+## non-zero base weight AND (b) currently have valid candidates. Effective
+## weight = base × recency. Categories with no candidates are filtered out
+## entirely so weight allocation doesn't get wasted.
+func _build_effective_weights() -> Dictionary:
+	var weights: Dictionary = {}
+	# own_room — needs an assigned room with non-trivial bounds.
+	if W_OWN_ROOM_BASE > 0.0 and _has_own_room_candidates():
+		weights[CAT_OWN_ROOM] = W_OWN_ROOM_BASE * float(_recency[CAT_OWN_ROOM])
+	# other_room — needs at least one room other than our own.
+	if W_OTHER_ROOM_BASE > 0.0 and _has_other_room_candidates():
+		weights[CAT_OTHER_ROOM] = W_OTHER_ROOM_BASE * float(_recency[CAT_OTHER_ROOM])
+	# social — needs at least one other ACC in the agent_characters group.
+	if W_SOCIAL_BASE > 0.0 and _has_social_candidates():
+		weights[CAT_SOCIAL] = W_SOCIAL_BASE * float(_recency[CAT_SOCIAL])
+	# prop / corridor — Phase 2 leaves base weight at 0; included for future flip.
+	if W_PROP_BASE > 0.0 and _has_prop_candidates():
+		weights[CAT_PROP] = W_PROP_BASE * float(_recency[CAT_PROP])
+	if W_CORRIDOR_BASE > 0.0:
+		weights[CAT_CORRIDOR] = W_CORRIDOR_BASE * float(_recency[CAT_CORRIDOR])
+	return weights
+
+
+## Returns true iff the agent has an assigned room with insettable bounds.
+func _has_own_room_candidates() -> bool:
 	var room_id: StringName = room_system.get_room_for_agent(agent_id)
 	if room_id == &"":
-		return
+		return false
 	var room_data = room_system.get_room(room_id)
 	if room_data == null:
-		return
+		return false
+	var b: Rect2i = room_data.bounds
+	# Need at least one walkable tile after the 1-tile wall inset.
+	return b.size.x >= 3 and b.size.y >= 3
+
+
+## Returns true iff at least one room other than the agent's own is registered.
+func _has_other_room_candidates() -> bool:
+	var own_room_id: StringName = room_system.get_room_for_agent(agent_id)
+	for id: StringName in room_system.get_all_room_ids():
+		if id != own_room_id:
+			var rd = room_system.get_room(id)
+			if rd != null and rd.bounds.size.x >= 3 and rd.bounds.size.y >= 3:
+				return true
+	return false
+
+
+## Returns true iff at least one OTHER ACC is in the agent_characters group.
+func _has_social_candidates() -> bool:
+	if get_tree() == null:
+		return false
+	for peer: Node in get_tree().get_nodes_in_group(AGENT_CHARACTERS_GROUP):
+		if peer != self:
+			return true
+	return false
+
+
+## Returns true iff any ambient_prop nodes exist. Always false in Phase 2.
+func _has_prop_candidates() -> bool:
+	if get_tree() == null:
+		return false
+	return get_tree().get_nodes_in_group(&"ambient_prop").size() > 0
+
+
+## Picks a category by weighted random sample. Returns "" if total weight is 0.
+func _weighted_random_category(weights: Dictionary) -> String:
+	var total: float = 0.0
+	for w: Variant in weights.values():
+		total += float(w)
+	if total <= 0.0:
+		return ""
+	var roll: float = _rng.randf_range(0.0, total)
+	var accumulator: float = 0.0
+	for cat: String in weights.keys():
+		accumulator += float(weights[cat])
+		if roll <= accumulator:
+			return cat
+	# Floating-point edge — return the last category as a safe fallback.
+	return weights.keys()[weights.size() - 1] as String
+
+
+## Dispatches to the picker for a category. Returns a world-space target
+## (Vector2) or null if the category couldn't pick at last mile.
+func _pick_target_for_category(category: String) -> Variant:
+	match category:
+		CAT_OWN_ROOM:
+			return _pick_own_room_target()
+		CAT_OTHER_ROOM:
+			return _pick_other_room_target()
+		CAT_SOCIAL:
+			return _pick_social_target()
+		_:
+			return null   # prop / corridor — Phase 3
+
+
+## Picks a random walkable tile inside the agent's assigned room (1-tile inset).
+func _pick_own_room_target() -> Variant:
+	var room_id: StringName = room_system.get_room_for_agent(agent_id)
+	if room_id == &"":
+		return null
+	return _pick_random_tile_in_room(room_id)
+
+
+## Picks a random walkable tile inside any room OTHER than the agent's own.
+## Uniform choice across other rooms (each room equally likely, regardless
+## of size). Returns null if there are no other rooms.
+func _pick_other_room_target() -> Variant:
+	var own_room_id: StringName = room_system.get_room_for_agent(agent_id)
+	var candidates: Array[StringName] = []
+	for id: StringName in room_system.get_all_room_ids():
+		if id != own_room_id:
+			var rd = room_system.get_room(id)
+			if rd != null and rd.bounds.size.x >= 3 and rd.bounds.size.y >= 3:
+				candidates.append(id)
+	if candidates.is_empty():
+		return null
+	var pick: StringName = candidates[_rng.randi_range(0, candidates.size() - 1)]
+	return _pick_random_tile_in_room(pick)
+
+
+## Picks a random tile within SOCIAL_PEER_RADIUS_TILES of another ACC's
+## current world position. The peer is sampled uniformly across all peers
+## (excluding self). Returned tile is clamped to the peer's room bounds
+## so we don't pathfind through a wall when geometry lands.
+func _pick_social_target() -> Variant:
+	if get_tree() == null:
+		return null
+	# Collect peers.
+	var peers: Array[Node] = []
+	for n: Node in get_tree().get_nodes_in_group(AGENT_CHARACTERS_GROUP):
+		if n != self:
+			peers.append(n)
+	if peers.is_empty():
+		return null
+	var peer: AgentCharacterController = peers[_rng.randi_range(0, peers.size() - 1)] as AgentCharacterController
+	if peer == null:
+		return null
+	# Peer's tile coord.
+	var peer_tile: Vector2i = tile_map_renderer.world_to_tile(peer.position)
+	# Sample within ±radius tiles.
+	var ox: int = _rng.randi_range(-SOCIAL_PEER_RADIUS_TILES, SOCIAL_PEER_RADIUS_TILES)
+	var oy: int = _rng.randi_range(-SOCIAL_PEER_RADIUS_TILES, SOCIAL_PEER_RADIUS_TILES)
+	var target_tile: Vector2i = peer_tile + Vector2i(ox, oy)
+	# Clamp to peer's room bounds (1-tile inset) if peer has an assigned room.
+	var peer_room_id: StringName = room_system.get_room_for_agent(peer.agent_id)
+	if peer_room_id != &"":
+		var peer_room = room_system.get_room(peer_room_id)
+		if peer_room != null:
+			var b: Rect2i = peer_room.bounds
+			target_tile.x = clampi(target_tile.x, b.position.x + 1, b.position.x + b.size.x - 2)
+			target_tile.y = clampi(target_tile.y, b.position.y + 1, b.position.y + b.size.y - 2)
+	return tile_map_renderer.tile_to_world(target_tile)
+
+
+## Internal helper: picks a random tile (1-tile wall inset) inside a room's
+## bounds. Returns world-space center of that tile. Returns null if the room
+## is too small to inset.
+func _pick_random_tile_in_room(room_id: StringName) -> Variant:
+	var room_data = room_system.get_room(room_id)
+	if room_data == null:
+		return null
 	var bounds: Rect2i = room_data.bounds
-	# Inset by 1 tile to avoid wall-adjacent picks once collision geometry exists.
 	var min_x: int = bounds.position.x + 1
 	var max_x: int = bounds.position.x + bounds.size.x - 2
 	var min_y: int = bounds.position.y + 1
 	var max_y: int = bounds.position.y + bounds.size.y - 2
 	if max_x < min_x or max_y < min_y:
-		return   # bounds too small to inset; bail rather than pick a wall
-	var tile_x: int = _rng.randi_range(min_x, max_x)
-	var tile_y: int = _rng.randi_range(min_y, max_y)
-	_set_walk_target(tile_map_renderer.tile_to_world(Vector2i(tile_x, tile_y)))
+		return null
+	var tx: int = _rng.randi_range(min_x, max_x)
+	var ty: int = _rng.randi_range(min_y, max_y)
+	return tile_map_renderer.tile_to_world(Vector2i(tx, ty))
 
 
-## Starts a uniform-random dwell timer per GDD §Idle Wandering — Dwell Times
-## (own_room: 2.0–4.0s). On timeout, picks the next wander target.
+## Starts a uniform-random dwell timer using the range for the category we
+## just arrived at. On timeout, picks the next wander target.
 func _start_dwell() -> void:
-	var dwell_sec: float = _rng.randf_range(DWELL_OWN_ROOM_MIN_SEC, DWELL_OWN_ROOM_MAX_SEC)
+	var range_min: float = DWELL_OWN_ROOM_MIN_SEC
+	var range_max: float = DWELL_OWN_ROOM_MAX_SEC
+	match _current_category:
+		CAT_SOCIAL:
+			range_min = DWELL_SOCIAL_MIN_SEC
+			range_max = DWELL_SOCIAL_MAX_SEC
+		CAT_PROP:
+			range_min = DWELL_PROP_MIN_SEC
+			range_max = DWELL_PROP_MAX_SEC
+		CAT_OTHER_ROOM:
+			range_min = DWELL_OTHER_ROOM_MIN_SEC
+			range_max = DWELL_OTHER_ROOM_MAX_SEC
+		CAT_CORRIDOR:
+			range_min = DWELL_CORRIDOR_MIN_SEC
+			range_max = DWELL_CORRIDOR_MAX_SEC
+		CAT_OWN_ROOM, _:
+			range_min = DWELL_OWN_ROOM_MIN_SEC
+			range_max = DWELL_OWN_ROOM_MAX_SEC
+	var dwell_sec: float = _rng.randf_range(range_min, range_max)
 	_dwell_timer = Timer.new()
 	_dwell_timer.one_shot = true
 	_dwell_timer.wait_time = dwell_sec
@@ -467,3 +741,13 @@ func _config_loader_available() -> bool:
 
 func _test_force_state(state: int) -> void:
 	_enter_state(state)
+
+
+## Test seam — read recency multiplier for a category.
+func _test_get_recency(category: String) -> float:
+	return float(_recency.get(category, 1.0))
+
+
+## Test seam — read the last-picked category (drives dwell range).
+func _test_get_current_category() -> String:
+	return _current_category

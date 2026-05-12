@@ -303,3 +303,104 @@ func test_acc_uses_errored_anim_name_not_errored_freeze() -> void:
 	# &"errored_freeze", which isn't in the placeholder library. Aligned to
 	# ADR-0009 §Shared Asset table (single `errored` anim).
 	assert_eq(ACCScript.ASM_STATE_TO_ANIM[AsmScript.STATE_ERRORED], &"errored")
+
+
+# ─── Phase 2 weighted wandering: constants ───────────────────────────────────
+
+func test_phase2_base_weights_match_gdd_defaults() -> void:
+	# GDD §Tuning Knobs → Idle Wandering — Waypoint Weights
+	# Note: prop/corridor are intentionally 0 in Phase 2 (deferred deps).
+	# When ambient_prop / corridor concept land, set these back to GDD defaults.
+	assert_almost_eq(ACCScript.W_SOCIAL_BASE, 35.0, 0.0001)
+	assert_almost_eq(ACCScript.W_OTHER_ROOM_BASE, 20.0, 0.0001)
+	assert_almost_eq(ACCScript.W_OWN_ROOM_BASE, 5.0, 0.0001)
+
+
+func test_phase2_recency_floor_and_decay_match_gdd() -> void:
+	# GDD §Tuning Knobs → Recency Cooldown
+	assert_almost_eq(ACCScript.C_RECENCY_FLOOR, 0.2, 0.0001)
+	assert_almost_eq(ACCScript.RECENCY_DECAY_PER_SEC, 0.1, 0.0001)
+
+
+# ─── Phase 2 recency state ───────────────────────────────────────────────────
+
+func test_recency_starts_at_1_0_for_all_categories() -> void:
+	# Arrange / Act
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Assert
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_SOCIAL), 1.0, 0.0001)
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_PROP), 1.0, 0.0001)
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_OTHER_ROOM), 1.0, 0.0001)
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_CORRIDOR), 1.0, 0.0001)
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_OWN_ROOM), 1.0, 0.0001)
+	acc.queue_free()
+
+
+func test_process_delta_advances_recency_toward_1() -> void:
+	# Arrange — manually depress recency, then run _process(delta).
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	acc._test_force_state(ACCScript.BehavioralState.IDLE_WANDERING)
+	acc._recency[ACCScript.CAT_OWN_ROOM] = 0.5
+	# Act — 1 second of process time at RECENCY_DECAY_PER_SEC (0.1) = +0.1
+	acc._process(1.0)
+	# Assert
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_OWN_ROOM), 0.6, 0.0001)
+	acc.queue_free()
+
+
+func test_process_delta_clamps_recency_at_1() -> void:
+	# Arrange — recency at 0.95; one second of decay (+0.1) would overshoot.
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	acc._test_force_state(ACCScript.BehavioralState.IDLE_WANDERING)
+	acc._recency[ACCScript.CAT_OWN_ROOM] = 0.95
+	# Act
+	acc._process(1.0)
+	# Assert — clamped to 1.0
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_OWN_ROOM), 1.0, 0.0001)
+	acc.queue_free()
+
+
+func test_process_delta_does_not_decay_outside_idle_wandering() -> void:
+	# Recency state should freeze when not wandering.
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	acc._test_force_state(ACCScript.BehavioralState.WORKING)
+	acc._recency[ACCScript.CAT_OWN_ROOM] = 0.5
+	# Act
+	acc._process(1.0)
+	# Assert — unchanged
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_OWN_ROOM), 0.5, 0.0001)
+	acc.queue_free()
+
+
+# ─── Phase 2 weighted random sampling ────────────────────────────────────────
+
+func test_weighted_random_category_returns_only_key_when_one_choice() -> void:
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Act / Assert
+	var result: String = acc._weighted_random_category({"only_cat": 10.0})
+	assert_eq(result, "only_cat")
+	acc.queue_free()
+
+
+func test_weighted_random_category_returns_empty_when_zero_total() -> void:
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	# Act / Assert — all-zero weights
+	var result: String = acc._weighted_random_category({"a": 0.0, "b": 0.0})
+	assert_eq(result, "")
+	acc.queue_free()
+
+
+# ─── Phase 2 group membership ────────────────────────────────────────────────
+
+func test_acc_joins_agent_characters_group_at_ready() -> void:
+	var acc: AgentCharacterController = _make_acc("agent_a")
+	add_child(acc)
+	assert_true(acc.is_in_group(ACCScript.AGENT_CHARACTERS_GROUP),
+		"ACC must self-join the peer-discovery group for social waypoint")
+	acc.queue_free()

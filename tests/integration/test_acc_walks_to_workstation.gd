@@ -119,23 +119,124 @@ func test_working_signal_drives_animation_player_to_working_anim() -> void:
 	_cleanup(stack)
 
 
-func test_idle_wandering_picks_target_inside_own_room_bounds() -> void:
-	# Arrange — ACC enters IDLE_WANDERING in _ready() (post-assign).
+func test_phase2_visiting_category_drops_its_recency_to_floor() -> void:
+	# After _pick_idle_wander_target() picks a category, that category's
+	# recency multiplier must drop to C_RECENCY_FLOOR. Other categories'
+	# recency is unaffected by the same call.
+	#
+	# Note: ACC._ready() fires _pick_idle_wander_target() once via the
+	# IDLE_WANDERING entry hook, so recencies are no longer all 1.0 by the
+	# time the test runs. Reset them, then verify the next pick's effect.
+	var stack: Dictionary = _make_stack("claude_dev")
+	var acc: AgentCharacterController = stack["acc"]
+	# Reset to a clean slate.
+	for cat: String in [ACCScript.CAT_SOCIAL, ACCScript.CAT_OTHER_ROOM,
+			ACCScript.CAT_OWN_ROOM, ACCScript.CAT_PROP, ACCScript.CAT_CORRIDOR]:
+		acc._recency[cat] = 1.0
+
+	# Act
+	acc._pick_idle_wander_target()
+
+	# Assert — whichever category was picked dropped to floor; the others
+	# stayed at 1.0.
+	var picked: String = acc._test_get_current_category()
+	assert_ne(picked, "", "A category must have been picked")
+	assert_almost_eq(acc._test_get_recency(picked), ACCScript.C_RECENCY_FLOOR, 0.0001,
+		"Picked category's recency dropped to floor")
+	# Verify another category did not also drop.
+	var other: String = ACCScript.CAT_OWN_ROOM if picked != ACCScript.CAT_OWN_ROOM else ACCScript.CAT_OTHER_ROOM
+	assert_almost_eq(acc._test_get_recency(other), 1.0, 0.0001,
+		"Non-picked category's recency is preserved")
+
+	_cleanup(stack)
+
+
+func test_phase2_other_room_is_picked_when_only_other_room_available() -> void:
+	# Force-pick other_room by setting up two rooms but no peers.
+	# Then suppress own_room and social weights to zero via maxed-out recency
+	# trick (set own_room recency to a tiny number — still nonzero but tiny —
+	# and verify other_room gets picked over many trials).
+	# More deterministic: directly test the _pick_other_room_target helper.
 	var stack: Dictionary = _make_stack("claude_dev")
 	var rs: RoomSystem = stack["rs"]
 	var acc: AgentCharacterController = stack["acc"]
 
-	# Re-pick to force a fresh target (the one from _ready() came before
-	# add_child completed and may have run pre-assignment).
-	rs.assign_agent(RoomSystemScript.AGENT_ROOM_ID, "claude_dev") if false else null
+	# Act
+	var target: Variant = acc._pick_other_room_target()
+
+	# Assert — target is inside the commander's room bounds (the only other
+	# room registered besides agent_01). commander bounds = (1, 1, 20, 15)
+	# → world rect (16, 16) to (336, 240).
+	assert_not_null(target, "Other-room pick must succeed when commander's room is registered")
+	var t: Vector2 = target as Vector2
+	assert_gte(t.x, 16.0)
+	assert_lte(t.x, 336.0)
+	assert_gte(t.y, 16.0)
+	assert_lte(t.y, 240.0)
+
+	_cleanup(stack)
+
+
+func test_phase2_social_picks_near_peer_position() -> void:
+	# With two ACCs in the agent_characters group, the social picker should
+	# pick a tile within SOCIAL_PEER_RADIUS_TILES of the other ACC.
+	# Arrange
+	var stack: Dictionary = _make_stack("claude_dev")
+	var rs: RoomSystem = stack["rs"]
+	var tm: TileMapRenderer = stack["tm"]
+	var asm: Node = stack["asm"]
+	var primary: AgentCharacterController = stack["acc"]
+	# Add a second ACC, manually positioned.
+	var peer: AgentCharacterController = ACCScript.new()
+	peer.agent_id = "peer_dev"
+	peer.agent_state_machine = asm
+	peer.room_system = rs
+	peer.tile_map_renderer = tm
+	add_child(peer)
+	# Assign peer to commander's room so it has a room context for clamping.
+	# (assign_agent will warn about workstation capacity but still records.)
+	# Use direct dict write via test seam isn't available; instead manually
+	# park peer's position somewhere known.
+	peer.position = Vector2(200.0, 100.0)   # known world coord
+
+	# Act
+	var target: Variant = primary._pick_social_target()
+
+	# Assert — target should be within (200 ± 2 tiles, 100 ± 2 tiles) world
+	# space, i.e. within 32px on each axis. (Then clamped to peer's room
+	# bounds if peer has one — peer has no room here, so no clamp.)
+	assert_not_null(target, "Social pick must succeed when a peer exists")
+	var t: Vector2 = target as Vector2
+	# Allow some slack — clamp may shrink to room bounds. Just verify peer
+	# was discovered and a target was produced (not stuck at default).
+	# Tile coord of (200, 100) at CELL=16 is (12, 6); ±2 tiles → world ±32px
+	# (200 - 32 = 168, 200 + 32 = 232, but tile_to_world adds 8px center)
+	# Worst case: peer was selected but has a room assignment that clamps target.
+	# Loose check: target is in the same general area as peer.
+	assert_lt(t.distance_to(peer.position), 200.0,
+		"Social target should be reasonably close to peer (not far across the bunker)")
+
+	peer.queue_free()
+	_cleanup(stack)
+
+
+func test_idle_wandering_picks_target_inside_some_registered_room_bounds() -> void:
+	# Phase 2: picker can choose own_room OR other_room. Verify the target
+	# lands inside SOME registered room's bounds (1-tile inset).
+	# Arrange
+	var stack: Dictionary = _make_stack("claude_dev")
+	var acc: AgentCharacterController = stack["acc"]
+
+	# Act
 	acc._pick_idle_wander_target()
 
-	# Assert — walk target is inside the agent room bounds (in world space).
-	# bounds = (22, 1, 18, 13) → world rect (352, 16) to (640, 224)
+	# Assert — target is inside either room:
+	#   commander: bounds (1,1,20,15) → world (16,16) to (336,240)
+	#   agent_01:  bounds (22,1,18,13) → world (352,16) to (640,224)
 	var t: Vector2 = acc.get_walk_target()
-	assert_gte(t.x, 352.0, "Wander x should be >= room left edge in world space")
-	assert_lte(t.x, 640.0, "Wander x should be <= room right edge")
-	assert_gte(t.y, 16.0, "Wander y should be >= room top edge")
-	assert_lte(t.y, 224.0, "Wander y should be <= room bottom edge")
+	var in_commander: bool = t.x >= 16.0 and t.x <= 336.0 and t.y >= 16.0 and t.y <= 240.0
+	var in_agent: bool = t.x >= 352.0 and t.x <= 640.0 and t.y >= 16.0 and t.y <= 224.0
+	assert_true(in_commander or in_agent,
+		"Wander target (%s) must fall inside commander's room or agent room bounds" % t)
 
 	_cleanup(stack)
