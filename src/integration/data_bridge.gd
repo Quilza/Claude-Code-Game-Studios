@@ -118,8 +118,7 @@ func _spawn_channel(id: String, config: Dictionary) -> void:
 	# Timer (one-shot; re-armed after each settle).
 	ch.timer = Timer.new()
 	ch.timer.one_shot = true
-	var interval: float = float(config.get("poll_interval", POLL_INTERVAL_DEFAULT))
-	ch.timer.wait_time = interval
+	ch.timer.wait_time = _resolve_poll_interval()
 	add_child(ch.timer)
 	ch.timer.timeout.connect(_on_poll_timer.bind(id))
 
@@ -281,7 +280,7 @@ func _handle_failure(agent_id: String, reason: String, fatal_4xx: bool) -> void:
 	# failure_count == 1 stays CONNECTED (grace per ADR-0001).
 
 	# Exponential backoff, cap MAX_BACKOFF_SEC
-	var base: float = float(ch.config.get("poll_interval", POLL_INTERVAL_DEFAULT))
+	var base: float = _resolve_poll_interval()
 	ch.current_backoff = minf(base * pow(2.0, ch.failure_count - 1), MAX_BACKOFF_SEC)
 	_reschedule(agent_id)
 
@@ -292,9 +291,26 @@ func _reschedule(agent_id: String) -> void:
 	if ch.current_backoff > 0.0:
 		wait = ch.current_backoff
 	else:
-		wait = float(ch.config.get("poll_interval", POLL_INTERVAL_DEFAULT))
+		wait = _resolve_poll_interval()
 	ch.timer.wait_time = wait
 	ch.timer.start()
+
+
+## Reads the project-wide `poll_interval_sec` from ConfigurationLoader. The
+## per-agent config dict does NOT carry this — it's a top-level config.json
+## field, validated and stored by ConfigLoader. Returns POLL_INTERVAL_DEFAULT
+## when ConfigLoader is unreachable (test paths).
+##
+## Pre-fix: each channel read `poll_interval` from its per-agent config dict
+## (wrong key name, wrong source), silently fell through to the 5.0s default,
+## ignored the user's config.json override. Audited 2026-05-13.
+func _resolve_poll_interval() -> float:
+	if Engine.has_singleton("ConfigurationLoader") or (
+			get_tree() != null
+			and get_tree().root != null
+			and get_tree().root.has_node("ConfigurationLoader")):
+		return ConfigurationLoader.get_poll_interval()
+	return POLL_INTERVAL_DEFAULT
 
 
 func _transition_state(agent_id: String, new_state: String) -> void:
