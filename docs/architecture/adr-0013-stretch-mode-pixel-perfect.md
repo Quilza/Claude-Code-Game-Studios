@@ -285,3 +285,29 @@ No existing code to migrate (pre-production). Settings applied at first project 
 - VERIFY-1, VERIFY-3 — closed by this ADR
 - New VERIFY-13, VERIFY-14 — opened by this ADR
 - TR-tilemap-001 through TR-tilemap-004, TR-hud-009 — covered by this ADR
+
+---
+
+## Amendment 2026-05-12 (post-engine-verify-sweep)
+
+Source: `docs/architecture/verify-sweep-2026-05-12.md` (godot-specialist consultation)
+
+### A1 — Retina smoke test additions
+
+**VERIFY-13 verdict**: CONCERN (MEDIUM confidence) — architecture is correct in principle but residual edge cases exist at unusual Retina resolutions.
+
+The combination `viewport` + `keep` + `scale_mode = "integer"` + `allow_hidpi = true` is the documented pixel-perfect Retina path. No policy amendment needed; this is a smoke-test additions item.
+
+**Smoke test list expanded**:
+- ✅ Original list (1920×1080, 2560×1440, 1366×768, mobile-portrait)
+- ⊕ **Add**: 2560×1600 (MacBook Pro 13" Retina, ×2 logical, ×5 letterbox)
+- ⊕ **Add**: 2880×1800 (MacBook Pro 15"/16" Retina, ×6 with letterbox)
+- ⊕ **Add**: 3024×1964 (MacBook Pro 14" M-series, atypical ratio — useful edge case)
+
+Pixels will not be blurry at any of these. The UX concern is letterbox size being larger than expected on certain Retina resolutions — acceptable.
+
+### A2 — `FIXED_SIZE_SCALE_INTEGER_ONLY` enum value pinned
+
+**VERIFY-17 verdict**: CONCERN (MEDIUM) — surfaced concern about `fixed_size_scale_mode` integer value. This applies to ADR-0012 (FontFile) but cross-references here because integer scaling is the shared pixel-perfect substrate.
+
+Per the sweep: enum value `fixed_size_scale_mode = 1` is `FIXED_SIZE_SCALE_INTEGER_ONLY` in 4.6.2 source. The ADR-0012 `.tres` resource uses integer literals (safer against enum renames). No change to this ADR needed.

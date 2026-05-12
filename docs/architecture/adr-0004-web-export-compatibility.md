@@ -263,3 +263,58 @@ No existing code to migrate (pre-production). ConfigurationLoader override + Aud
 - VERIFY-4 — closed by this ADR
 - New VERIFY-10, VERIFY-11, VERIFY-12 — opened by this ADR
 - TR-data-bridge-008, TR-audio-006 — covered by this ADR
+
+---
+
+## Amendment 2026-05-12 (post-engine-verify-sweep)
+
+Source: `docs/architecture/verify-sweep-2026-05-12.md` (godot-specialist consultation)
+
+### A1 — AudioContext unlock primary path upgraded
+
+**VERIFY-12 verdict**: CONCERN (LOW confidence). The original primary path (no-op `set_bus_volume_db` write to trigger AudioContext resume) is **undocumented engine behaviour** — it appears in community tutorials but is not in official Godot 4.4–4.6 docs. Risk: on Safari, the first SFX after user gesture may still be silently dropped if `set_bus_volume_db` alone does not wake the AudioContext.
+
+**Amended pattern**: prefer a **zero-volume one-shot `AudioStreamPlayer.play()`** as the canonical activation path. This is a guaranteed cross-browser AudioContext-wake mechanism (the browser unlocks on any actual audio playback, not on volume metadata writes).
+
+```gdscript
+# AudioManager._ready()  — AMENDED
+var _audio_unlock_player: AudioStreamPlayer
+if OS.has_feature("web"):
+    _audio_unlock_player = AudioStreamPlayer.new()
+    _audio_unlock_player.bus = &"Master"
+    _audio_unlock_player.volume_db = -80.0   # effectively silent
+    _audio_unlock_player.stream = preload("res://assets/audio/silence_50ms.ogg")
+    add_child(_audio_unlock_player)
+    set_process_input(true)
+
+func _input(event: InputEvent) -> void:
+    if not OS.has_feature("web"):
+        return
+    var is_press: bool = (event is InputEventMouseButton or event is InputEventKey) and event.is_pressed()
+    if not is_press:
+        return
+    _audio_unlock_player.play()         # guaranteed AudioContext wake
+    set_process_input(false)            # one-shot
+```
+
+The original `set_bus_volume_db` pattern remains documented as the **fallback fallback** if the silence asset can't ship. The `JavaScriptBridge.eval()` path documented above remains the brittle-but-explicit last resort.
+
+**Required asset addition**: `res://assets/audio/silence_50ms.ogg` — a 50ms silent OGG. Trivially generated via `ffmpeg -f lavfi -i anullsrc=channel_layout=mono:sample_rate=44100 -t 0.05 silence_50ms.ogg`. Roughly 1KB.
+
+**Smoke test mandate**: Before any web build ships, run the full path on Chrome + Firefox + Safari with browser DevTools open (Application → Background Services → Web Audio) and confirm AudioContext transitions from "suspended" → "running" within one frame of first user gesture. Document the tested browser/version matrix.
+
+### A2 — Safari non-integer browser zoom limitation documented
+
+**VERIFY-14 verdict**: CONCERN (MEDIUM confidence). `image-rendering: pixelated` is supported in all target browsers but Safari applies it AFTER the OS-level compositing step, which introduces sub-pixel softening at non-integer device-pixel-ratios (browser zoom 125%, 150%, 175%).
+
+**Stance**: this is a platform limitation, not a Godot bug. We accept it.
+
+**Required documentation in `web/shell.html`**: a comment in the HTML shell that 100% and 200% browser zoom are the canonical pixel-perfect zoom levels. Smoke testing focuses on those two.
+
+### A3 — JavaScriptBridge availability confirmed
+
+**VERIFY-10 verdict**: PASS (HIGH confidence). `JavaScriptBridge` singleton (renamed from `JavaScript` in 4.4) is stable through 4.6.2. The fallback path in this ADR uses the correct class name. No change required.
+
+### A4 — `OS.has_feature("web")` reliability at `_ready()` confirmed
+
+**VERIFY-11 verdict**: PASS (HIGH confidence). Feature tags are compile-time engine constants; available from the first line of any script. No ordering concerns. No change required.

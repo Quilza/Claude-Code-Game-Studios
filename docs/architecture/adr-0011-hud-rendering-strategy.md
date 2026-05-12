@@ -397,3 +397,28 @@ No existing code to migrate (pre-production). Apply at first HUD implementation 
 - ADR-0012 BitmapFont/FontFile Strategy (planned) — defines the 5×7 font this HUD renders
 - New VERIFY-15, VERIFY-16 — opened by this ADR
 - TR-hud-001, TR-hud-002, TR-hud-003, TR-hud-004, TR-hud-005, TR-hud-007, TR-hud-010 — covered by this ADR
+
+---
+
+## Amendment 2026-05-12 (post-engine-verify-sweep)
+
+Source: `docs/architecture/verify-sweep-2026-05-12.md` (godot-specialist consultation)
+
+### A1 — Recursive IGNORE propagation guardrail (4.5+ feature)
+
+**VERIFY-15 verdict**: PASS (HIGH confidence) — but with one new guardrail surfaced.
+
+Godot 4.5 introduced an opt-in feature that allows `MOUSE_FILTER_IGNORE` to propagate recursively to descendants (overriding their own `mouse_filter` values). This ADR's 14-explicit-STOP-override model is **incompatible** with that feature: if any ancestor of the 12 slot Controls is set to recursive-IGNORE, all slot clicks would be silently masked.
+
+**New forbidden pattern** (added to `docs/architecture/control-manifest.md`):
+- `recursive_mouse_filter_ignore_on_hud_ancestor` — do not enable the 4.5+ recursive `MOUSE_FILTER_IGNORE` propagation feature on any Control that is an ancestor of the 12 slot Controls.
+
+The default (non-recursive) IGNORE behaviour — which this ADR relies on — is unchanged in 4.5+. We just have to avoid the new opt-in.
+
+### A2 — World Tab handler restriction (VERIFY-16 implementation note)
+
+**VERIFY-16 verdict**: PASS (HIGH confidence).
+
+Subtlety surfaced: `set_input_as_handled()` in `_unhandled_input` correctly suppresses the event for any node that also uses `_unhandled_input`, but a node using `_input()` would receive the Tab *before* HudLayer's `_unhandled_input` fires. The HUD toggle cannot suppress that.
+
+**New implementation contract**: World nodes must NOT handle Tab in `_input()`. Use `_unhandled_input()` or `InputMap` action-mapped checks so the HUD toggle can suppress the Tab event first. Documented in the control manifest under "Input handling" rules.

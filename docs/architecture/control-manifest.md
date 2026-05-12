@@ -1,9 +1,13 @@
 # Control Manifest — The Situation Room
 
-**Manifest Version**: 2026-05-12
+**Manifest Version**: 2026-05-12.1
 **Engine**: Godot 4.6.2
-**Source**: 13 Accepted ADRs (0001–0014 minus 0007 BLOCKED)
+**Source**: 13 Accepted ADRs (0001–0014 minus 0007 BLOCKED) + amendments per `verify-sweep-2026-05-12.md`
 **Status**: Active
+
+**Version log**:
+- `2026-05-12` — initial extraction from 13 Accepted ADRs
+- `2026-05-12.1` — post-engine-verify-sweep amendments: AudioContext unlock pattern upgraded (ADR-0004 A1); HUD recursive-IGNORE guardrail (ADR-0011 A1); world Tab-handler restriction (ADR-0011 A2); Retina smoke-test list expanded (ADR-0013 A1); VERIFY ledger updated with sweep verdicts
 
 > **For programmers**: This is your flat rules sheet. Required / Forbidden / Guardrails per layer. Extracted mechanically from Accepted ADRs. Where you need the **why**, read the ADR. Where you need the **what**, this manifest is enough.
 >
@@ -82,7 +86,7 @@
 - Caller owns stream lookup (Audio Manager is stream-agnostic).
 - Default volumes: Music −18 dB, SFX −12 dB, Alert −8 dB.
 - Global mute (M key) + per-bus mute via Settings panel.
-- **Web AudioContext (ADR-0004)**: on web, arm one-shot `_input()` handler at `_ready()`; on first `InputEventMouseButton` or `InputEventKey` press, perform a no-op AudioServer write to trigger AudioContext resume; deactivate handler.
+- **Web AudioContext (ADR-0004 A1 amended 2026-05-12.1)**: on web, instantiate a dedicated silent `AudioStreamPlayer` referencing `res://assets/audio/silence_50ms.ogg`. On first `InputEventMouseButton` or `InputEventKey` press, call `.play()` on it. This is the **guaranteed cross-browser AudioContext-wake mechanism** — the old no-op `set_bus_volume_db` pattern is undocumented engine behaviour and is now the fallback path only. Smoke test on Chrome + Firefox + Safari before any web release.
 
 ### Forbidden
 - Runtime allocation of `AudioStreamPlayer` nodes (use the pre-instantiated pool).
@@ -129,6 +133,8 @@
 - `hud_separate_connection_overlay` — connection quality is `modulate.a` on the slot itself, not a sibling ColorRect.
 - `per_label_font_override` — fonts come from Theme, never via `add_theme_font_override(...)`.
 - `multiple_hud_font_sizes_mvp` — exactly one font size (7px) for MVP.
+- `recursive_mouse_filter_ignore_on_hud_ancestor` — do NOT enable Godot 4.5+'s opt-in recursive `MOUSE_FILTER_IGNORE` propagation feature on any Control that is an ancestor of the 12 slot Controls. It would override the 14 explicit STOP overrides and silently mask all slot clicks (ADR-0011 A1).
+- `world_tab_handler_in_input` — world nodes must NOT handle Tab in `_input()`. Use `_unhandled_input()` or InputMap action-mapped checks so the HUD toggle can suppress Tab first (ADR-0011 A2).
 
 ---
 
@@ -231,25 +237,33 @@ Implementation stories that depend on these TRs cannot pass `/story-readiness` u
 
 ---
 
-## VERIFY items (engine-empirical claims awaiting confirmation)
+## VERIFY items (engine-empirical claims)
 
-Concerns documented in ADRs but **must be confirmed before code lands** that depends on them. Recommend godot-specialist consultation sweep when first implementation story is ready.
+**Sweep status (2026-05-12)**: godot-specialist consulted on items 10–20. Full report: `docs/architecture/verify-sweep-2026-05-12.md`. **6 PASS / 5 CONCERN / 0 FAIL.** Items 7 + 8 remain pending Data Bridge prototype (Sprint 1).
 
-| # | Claim | ADR | Resolution path |
-|---|---|---|---|
-| 7 | `HTTPRequest.request_completed` signal signature unchanged in 4.4–4.6 | 0001 | Data Bridge prototype |
-| 8 | `HTTPRequest.timeout` clean cancellation in 4.6.2 | 0001 | Data Bridge prototype |
-| 10 | `JavaScriptBridge` singleton available in 4.6.2 web export | 0004 | godot-specialist + smoke test |
-| 11 | `OS.has_feature("web")` true at `_ready()` in 4.6.2 HTML5 build | 0004 | Smoke test in web export |
-| 12 | AudioServer activity resumes Web AudioContext on first gesture in Chrome/Firefox/Safari | 0004 | Manual browser smoke before web release |
-| 13 | HiDPI Mac Retina + `window/dpi/allow_hidpi=true` produces crisp ×N scaling at 480×270 | 0013 | Manual smoke on Retina |
-| 14 | `image-rendering: pixelated` in web shell holds at non-integer browser zoom | 0013/0004 | Manual browser smoke |
-| 15 | `MOUSE_FILTER_IGNORE` parent allows STOP child to receive clicks in 4.6.2 | 0011 | GUT integration test |
-| 16 | `set_input_as_handled()` in `_unhandled_input` consumes Tab from world | 0011 | GUT test |
-| 17 | `FIXED_SIZE_SCALE_INTEGER_ONLY` produces zero anti-aliasing at integer multiples | 0012 | Visual smoke at ×1/×2/×4/×8 |
-| 18 | Theme `default_font` propagates to nested Control subtrees | 0012 | GUT test |
-| 19 | `AnimationLibrary` assignment via `add_animation_library(&"", lib)` is canonical default-library path in 4.6.2 | 0009 | godot-specialist |
-| 20 | `animation_finished` fires exactly once for LOOP_NONE animation at end-of-track | 0009 | GUT test |
+| # | Claim | ADR | Verdict (2026-05-12) | Resolution path |
+|---|---|---|---|---|
+| 7 | `HTTPRequest.request_completed` signal signature unchanged in 4.4–4.6 | 0001 | OPEN | Data Bridge prototype (Sprint 1) |
+| 8 | `HTTPRequest.timeout` clean cancellation in 4.6.2 | 0001 | OPEN | Data Bridge prototype (Sprint 1) |
+| 10 | `JavaScriptBridge` singleton available in 4.6.2 web export | 0004 | **PASS** (HIGH) | — closed |
+| 11 | `OS.has_feature("web")` true at `_ready()` in 4.6.2 HTML5 build | 0004 | **PASS** (HIGH) | — closed |
+| 12 | AudioServer activity resumes Web AudioContext on first gesture in Chrome/Firefox/Safari | 0004 | **CONCERN** (LOW) | Web build smoke on 3 browsers. ADR-0004 A1 amended: primary path now `AudioStreamPlayer.play()` on silent stream |
+| 13 | HiDPI Mac Retina produces crisp ×N scaling at 480×270 | 0013 | **CONCERN** (MED) | Smoke on 2560×1600, 2880×1800, 3024×1964 |
+| 14 | `image-rendering: pixelated` holds at non-integer browser zoom | 0013/0004 | **CONCERN** (MED) | Known Safari limitation documented; canonical zoom = 100% / 200% |
+| 15 | `MOUSE_FILTER_IGNORE` parent allows STOP child to receive clicks in 4.6.2 | 0011 | **PASS** (HIGH) | Closed — new guardrail added (`recursive_mouse_filter_ignore_on_hud_ancestor`) |
+| 16 | `set_input_as_handled()` in `_unhandled_input` consumes Tab from world | 0011 | **PASS** (HIGH) | Closed — new contract: world must not handle Tab in `_input()` |
+| 17 | `FIXED_SIZE_SCALE_INTEGER_ONLY` produces zero anti-aliasing at integer multiples | 0012 | **CONCERN** (MED) | Visual smoke at ×1/×2/×4/×8 (especially ×8 = 3840×2160) |
+| 18 | Theme `default_font` propagates to nested Control subtrees | 0012 | **PASS** (HIGH) | Closed — GUT test sufficient |
+| 19 | `AnimationLibrary` assignment via `add_animation_library(&"", lib)` is canonical | 0009 | **PASS** (HIGH) | — closed |
+| 20 | `animation_finished` fires exactly once for LOOP_NONE animation at end-of-track | 0009 | **CONCERN** (MED) | GUT test `test_completed_finishes_reverts_to_current_asm_state` |
+
+### Empirical smoke tests still required before code lands
+
+Three highest-priority smoke tests from the sweep:
+
+1. **VERIFY-12 (HIGHEST)** — Web AudioContext on Chrome + Firefox + Safari. If `AudioStreamPlayer.play()` on the silent stream fails on Safari, AudioManager unlock strategy needs another iteration. Run before first web build ships.
+2. **VERIFY-17** — `FIXED_SIZE_SCALE_INTEGER_ONLY` at ×8 (3840×2160). Manual visual smoke at 4K window before HUD font pipeline signed off.
+3. **VERIFY-20** — `animation_finished` signal timing under `AnimationMixer` base class. GUT smoke before ACC implementation stories marked Done.
 
 ---
 
