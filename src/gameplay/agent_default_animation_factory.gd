@@ -37,14 +37,16 @@ const DURATION_COMPLETED_SEC: float = 0.5
 const DURATION_ERRORED_SEC: float = 1.5
 
 
-# ─── Body target path (relative to AnimationPlayer parent) ───────────────────
+# ─── Body target path (relative to AnimationPlayer.root_node) ────────────────
 
 ## The placeholder visual is named "Body" — animations target its
-## `modulate` and `scale` properties. Path is relative because the
-## AnimationPlayer is a child of the ACC; "../Body:modulate" walks up
-## to ACC then down to Body. (Verified Godot 4 NodePath spec.)
-const BODY_NODE_PATH: NodePath = ^"../Body:modulate"
-const BODY_SCALE_PATH: NodePath = ^"../Body:scale"
+## `modulate` and `scale` properties. AnimationPlayer's `root_node` defaults
+## to its parent (the ACC); NodePaths in animation tracks are evaluated from
+## that root. So "Body:modulate" means "ACC's Body child's modulate". Verified
+## by the runtime warning "couldn't resolve track" when path was set to
+## "../Body:modulate" — it walked one level too high.
+const BODY_NODE_PATH: NodePath = ^"Body:modulate"
+const BODY_SCALE_PATH: NodePath = ^"Body:scale"
 
 
 # ─── Per-agent-type body colors (placeholder palette) ────────────────────────
