@@ -37,7 +37,7 @@
 #   Each entry: name, status, source, referenced_by[], attributes{}, added, revised
 
 version: 1
-last_updated: ""
+last_updated: "2026-05-09"
 
 # ─── ENTITIES ────────────────────────────────────────────────────────────────
 # Named game-world objects: enemies, NPCs, characters, factions, bosses.
@@ -139,7 +139,127 @@ formulas: []
 #
 # Required fields: name, status, source, referenced_by, value, unit, added
 
-constants: []
+constants:
+  - name: max_agents
+    status: active
+    source: design/gdd/configuration-loader.md
+    referenced_by:
+      - design/gdd/configuration-loader.md
+      - design/gdd/commanders-room-hud.md  # HUD sizes its 3×4 grid from this constant
+      # Room System GDD must also reference this — agents array max = room slot count
+    value: 12
+    unit: agents
+    added: 2026-05-08
+    revised: ""
+
+  - name: cell_size
+    status: active
+    source: design/gdd/tilemap-renderer.md
+    referenced_by:
+      - design/gdd/tilemap-renderer.md
+      # Agent Character Controller, Commander Character, Ambient Animation Layer,
+      # Alert State System must all read TileMapRenderer.CELL_SIZE — do not hardcode 16
+    value: 16
+    unit: px
+    added: 2026-05-09
+    revised: ""
+
+  - name: module_size
+    status: active
+    source: design/gdd/tilemap-renderer.md
+    referenced_by:
+      - design/gdd/tilemap-renderer.md
+      # Art bible uses 8px as the art grid unit — must match this value
+    value: 8
+    unit: px
+    added: 2026-05-09
+    revised: ""
+
+  - name: poll_interval_default
+    status: active
+    source: design/gdd/configuration-loader.md
+    referenced_by:
+      - design/gdd/configuration-loader.md
+      - design/gdd/data-bridge.md
+      # Agent State Machine GDD must reference this — staleness/timeout expectations
+      # are calibrated against the poll interval
+    value: 5.0
+    unit: seconds
+    added: 2026-05-09
+    revised: ""
+
+  - name: max_poll_retries
+    status: active
+    source: design/gdd/data-bridge.md
+    referenced_by:
+      - design/gdd/data-bridge.md
+      - design/gdd/commanders-room-hud.md  # HUD DISCONNECTED overlay triggered after this many failures
+    value: 4
+    unit: consecutive_failures
+    added: 2026-05-09
+    revised: ""
+
+  - name: commanders_room_id
+    status: active
+    source: design/gdd/room-system.md
+    referenced_by:
+      - design/gdd/room-system.md
+      - design/gdd/commanders-room-hud.md  # HUD is located in this room; must not hardcode "commander"
+      # Agent Character Controller, Commander Character,
+      # Camera/Viewport System (V1) must all reference this constant —
+      # never hardcode the string "commander"
+    value: '"commander"'
+    unit: StringName
+    added: 2026-05-09
+    revised: ""
+
+  - name: error_timeout_seconds
+    status: active
+    source: design/gdd/agent-character-controller.md
+    referenced_by:
+      - design/gdd/agent-character-controller.md
+      # Commander's Room HUD may display an error countdown — must agree on the freeze duration
+    value: 30.0
+    unit: seconds
+    added: 2026-05-09
+    revised: ""
+
+  - name: stagger_base_seconds
+    status: active
+    source: design/gdd/agent-character-controller.md
+    referenced_by:
+      - design/gdd/agent-character-controller.md
+      # Internal to ACC; registered because Ambient Animation Layer may reference departure
+      # timing if it triggers ambient reactions when multiple agents stand from desks
+    value: 0.2
+    unit: seconds
+    added: 2026-05-09
+    revised: ""
+
+  - name: completed_beat_duration_seconds
+    status: active
+    source: design/gdd/agent-character-controller.md
+    referenced_by:
+      - design/gdd/agent-character-controller.md
+      - design/gdd/audio-manager.md
+      - design/gdd/task-completion-beat.md
+      # TCB's T_total (1.5s) must remain ≤ this value. Constraint enforced via debug assertion in TCB.
+    value: 2.0
+    unit: seconds
+    added: 2026-05-09
+    revised: ""
+
+  - name: beat_total_seconds
+    status: active
+    source: design/gdd/task-completion-beat.md
+    referenced_by:
+      - design/gdd/task-completion-beat.md
+      - design/gdd/commanders-room-hud.md  # HUD COMPLETED glyph timer must equal this value exactly
+      # If BEAT_TOTAL_SEC is retuned in TCB, HUD's hud_completed_timer_sec must be updated to match.
+    value: 1.5
+    unit: seconds
+    added: 2026-05-09
+    revised: ""
 
 # Example:
 #

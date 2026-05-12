@@ -1,0 +1,27 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; but the file format allows quick manual changes.
+; PROTOTYPE - NOT FOR PRODUCTION
+; Question: Can users identify 4 agent behavioral states in under 3 seconds?
+; Date: 2026-05-09
+
+config_version=5
+
+[application]
+
+config/name="acc-legibility-prototype"
+config/description="Legibility prototype: can users identify agent states in <3s?"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.6", "2D")
+
+[display]
+
+window/size/viewport_width=640
+window/size/viewport_height=480
+window/size/resizable=false
+window/stretch/mode="disabled"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
