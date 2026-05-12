@@ -1,0 +1,52 @@
+name: Tests
+
+# Per ADR-0014: Test Framework + CI Pipeline (Accepted 2026-05-11)
+# Runs the GUT test suite headlessly. Failing tests block merge.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  gut-tests:
+    name: GUT (Godot 4.6.2)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive   # in case GUT is added as a submodule under addons/gut/
+
+      - name: Setup Godot 4.6.2 (headless)
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.6.2
+          use-dotnet: false
+
+      - name: Verify GUT plugin present
+        run: |
+          if [ ! -d "addons/gut" ]; then
+            echo "::error::addons/gut/ not found. Install GUT 9.x per tests/README.md."
+            exit 1
+          fi
+          if ! grep -q "gut" project.godot; then
+            echo "::warning::GUT may not be activated in project.godot under [editor_plugins]"
+          fi
+
+      - name: Run GUT test suite
+        run: |
+          godot --headless \
+            -s res://addons/gut/gut_cmdln.gd \
+            -gdir=res://tests \
+            -gexit \
+            -gjunit_xml_file=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml

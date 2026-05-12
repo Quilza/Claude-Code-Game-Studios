@@ -1,0 +1,3 @@
+# Integration tests directory
+# Per ADR-0014 + coding-standards.md, integration tests live here.
+# File naming: test_[system]_[feature].gd
