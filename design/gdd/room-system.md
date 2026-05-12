@@ -59,6 +59,19 @@ The experience the Room System must produce: a first-time observer can identify 
 
 8. **The Commander's Room knows nothing about the Commander Character.** The Room System holds the Commander's Room's bounds and spawn tile. The Commander Character system reads these at startup to place the character. The Room System does not know a Commander Character exists, does not receive position updates from it, and does not manage its behavior.
 
+9. **The Room System owns no rendering — but it owns a Node2D per room.** Room nodes are NOT the same as room *visuals*; they are lightweight placeholder roots. The visual surface of a room (floor tiles, walls, props) lives elsewhere (TileMap Renderer for tiles; per-room prop scenes for furniture). The room node exists purely as a parent target so cross-system effects (notably the Task Completion Beat modulate Tween) can address "this room" by Node2D reference without coupling to specific visual subsystems.
+
+10. **Room nodes join the `bunker_rooms` scene-tree group.** Constant exposed as `RoomSystem.BUNKER_ROOMS_GROUP: StringName = &"bunker_rooms"`. This is the fallback resolution path specified in `task-completion-beat.md` §10 for callers that do not hold a direct `RoomSystem` reference. Callers that do hold one prefer `get_room_node(room_id)` / `get_room_node_for_agent(agent_id)` — single-dictionary lookup instead of a tree-wide group scan.
+
+11. **Room Node2D instantiation happens in `_ready()`, immediately after `_register_rooms_with_tilemap()`.** For each entry in `_rooms`, the Room System creates a `Room` (inner class extending `Node2D`) with:
+   - `name = String(room_id)`
+   - `position = bounds.position * TileMapRenderer.CELL_SIZE` (top-left world-space corner)
+   - typed property `room_id: StringName` set to match the dict key
+   - `add_to_group(BUNKER_ROOMS_GROUP)`
+   - parented under the Room System itself
+
+   References are also stored in `_room_nodes: Dictionary` keyed by room_id for direct lookup. The Tier 11 instantiation order (after `_register_rooms_with_tilemap`, before any agent assignment) ensures room nodes exist in the tree before downstream `_ready()` calls fire — so any `_ready()` that queries `RoomSystem.get_room_node(...)` will get a valid node back. (This is the wiring contract validated by `tests/integration/test_tcb_room_tween.gd`.)
+
 ---
 
 ### States and Transitions

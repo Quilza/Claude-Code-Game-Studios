@@ -192,6 +192,83 @@ func test_get_room_unknown_returns_null() -> void:
 	rs.queue_free()
 
 
+# ─── Rule 11: Room Node2D instantiation ──────────────────────────────────────
+
+func test_room_system_creates_room_node_per_registered_room() -> void:
+	# Arrange / Act
+	var rs: RoomSystem = _make_room_system_with_tilemap()
+	# Assert — one Room node per room, named after room_id, child of RoomSystem.
+	var commander_node: Node2D = rs.get_room_node(RoomSystemScript.COMMANDERS_ROOM_ID)
+	var agent_node: Node2D = rs.get_room_node(RoomSystemScript.AGENT_ROOM_ID)
+	assert_not_null(commander_node, "Room node for commander's room must exist")
+	assert_not_null(agent_node, "Room node for agent room must exist")
+	assert_eq(commander_node.get_parent(), rs, "Room node parent should be RoomSystem")
+	assert_eq(agent_node.get_parent(), rs, "Room node parent should be RoomSystem")
+	rs.queue_free()
+
+
+func test_room_system_room_nodes_join_bunker_rooms_group() -> void:
+	# Arrange / Act
+	var rs: RoomSystem = _make_room_system_with_tilemap()
+	# Assert — every room node is in RoomSystem.BUNKER_ROOMS_GROUP for the
+	# TCB fallback group lookup path.
+	var grouped: Array[Node] = rs.get_tree().get_nodes_in_group(RoomSystemScript.BUNKER_ROOMS_GROUP)
+	assert_gte(grouped.size(), 2, "At least the two MVP room nodes should be in the bunker_rooms group")
+	var room_ids_found: Array[StringName] = []
+	for node: Node in grouped:
+		if node is Node2D and "room_id" in node:
+			room_ids_found.append(StringName(node.get("room_id")))
+	assert_has(room_ids_found, RoomSystemScript.COMMANDERS_ROOM_ID)
+	assert_has(room_ids_found, RoomSystemScript.AGENT_ROOM_ID)
+	rs.queue_free()
+
+
+func test_room_system_room_node_exposes_typed_room_id_property() -> void:
+	# Arrange / Act
+	var rs: RoomSystem = _make_room_system_with_tilemap()
+	var commander_node: Node2D = rs.get_room_node(RoomSystemScript.COMMANDERS_ROOM_ID)
+	# Assert — `room_id` is a real property (not metadata) so duck-typed
+	# callers like TCB._find_room_node_via_group can read it.
+	assert_true("room_id" in commander_node, "Room node must expose `room_id` property")
+	assert_eq(StringName(commander_node.get("room_id")), RoomSystemScript.COMMANDERS_ROOM_ID)
+	rs.queue_free()
+
+
+func test_room_system_room_node_position_matches_bounds_top_left_world_space() -> void:
+	# Per Rule 11: position = bounds.position * CELL_SIZE. The MVP agent room
+	# is at bounds.position = (22, 1); CELL_SIZE = 16 → world (352, 16).
+	# Arrange / Act
+	var rs: RoomSystem = _make_room_system_with_tilemap()
+	var agent_node: Node2D = rs.get_room_node(RoomSystemScript.AGENT_ROOM_ID)
+	# Assert
+	assert_eq(agent_node.position, Vector2(352.0, 16.0), "Agent room node position should be bounds.position * CELL_SIZE")
+	rs.queue_free()
+
+
+func test_get_room_node_unknown_returns_null() -> void:
+	var rs: RoomSystem = _make_room_system_with_tilemap()
+	assert_null(rs.get_room_node(&"never_registered"))
+	rs.queue_free()
+
+
+func test_get_room_node_for_agent_returns_node_after_assignment() -> void:
+	# Arrange
+	var rs: RoomSystem = _make_room_system_with_tilemap()
+	rs.assign_agent(RoomSystemScript.AGENT_ROOM_ID, "claude_dev")
+	# Act
+	var node: Node2D = rs.get_room_node_for_agent("claude_dev")
+	# Assert — matches the room the agent was assigned to.
+	assert_not_null(node)
+	assert_eq(StringName(node.get("room_id")), RoomSystemScript.AGENT_ROOM_ID)
+	rs.queue_free()
+
+
+func test_get_room_node_for_agent_unassigned_returns_null() -> void:
+	var rs: RoomSystem = _make_room_system_with_tilemap()
+	assert_null(rs.get_room_node_for_agent("never_assigned"))
+	rs.queue_free()
+
+
 # ─── computer_interacted forwarding ──────────────────────────────────────────
 
 func test_emit_computer_interacted_fires_signal() -> void:

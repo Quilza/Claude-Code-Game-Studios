@@ -31,7 +31,6 @@ const BEAT_TOTAL_SEC: float = BEAT_ATTACK_SEC + BEAT_HOLD_SEC + BEAT_DECAY_SEC  
 const BEAT_PEAK_COLOR: Color = Color(1.15, 1.35, 1.15, 1.0)
 const BEAT_NEUTRAL_COLOR: Color = Color(1, 1, 1, 1)
 
-const BUNKER_ROOMS_GROUP: StringName = &"bunker_rooms"
 const DEFAULT_AGENT_TYPE: String = "default"
 
 
@@ -107,9 +106,15 @@ func _trigger_room_tween(agent_id: String) -> void:
 	if room_id == &"":
 		push_warning("[TCB] agent '%s' has no assigned room — modulate Tween skipped" % agent_id)
 		return
-	var room_node: Node2D = _find_room_node(room_id)
+	# Direct API per Room System GDD §11. Falls back to bunker_rooms group
+	# lookup if RoomSystem.get_room_node didn't return a node (e.g. legacy
+	# scene where rooms are authored as static Main.tscn children, not
+	# instantiated by RoomSystem).
+	var room_node: Node2D = room_system.get_room_node(room_id)
 	if room_node == null:
-		push_warning("[TCB] no Node2D in group '%s' with room_id '%s' — modulate Tween skipped" % [BUNKER_ROOMS_GROUP, room_id])
+		room_node = _find_room_node_via_group(room_id)
+	if room_node == null:
+		push_warning("[TCB] no room node found for room_id '%s' — modulate Tween skipped" % room_id)
 		return
 	# Rule 7: same-room collision — kill existing Tween + restart from current modulate.
 	if _room_tweens.has(room_id):
@@ -129,12 +134,13 @@ func _trigger_room_tween(agent_id: String) -> void:
 	_room_tweens[room_id] = t
 
 
-func _find_room_node(room_id: StringName) -> Node2D:
-	# Scene-tree group lookup per Rule 10. Each room scene must add_to_group(BUNKER_ROOMS_GROUP)
-	# and expose a `room_id` property of type StringName.
+func _find_room_node_via_group(room_id: StringName) -> Node2D:
+	# Fallback scene-tree group lookup (Rule 10 provisional path). Each room
+	# node joins RoomSystem.BUNKER_ROOMS_GROUP and exposes a typed `room_id`
+	# property. Used only when RoomSystem.get_room_node() returns null.
 	if get_tree() == null:
 		return null
-	for node: Node in get_tree().get_nodes_in_group(BUNKER_ROOMS_GROUP):
+	for node: Node in get_tree().get_nodes_in_group(RoomSystem.BUNKER_ROOMS_GROUP):
 		if node is Node2D and "room_id" in node:
 			if StringName(node.get("room_id")) == room_id:
 				return node as Node2D

@@ -29,6 +29,15 @@ const COMMANDERS_ROOM_ID: StringName = &"commander"
 const AGENT_ROOM_ID: StringName = &"agent_01"
 
 
+# ─── bunker_rooms group (per Rule 11) ────────────────────────────────────────
+
+## Scene-tree group every Room Node2D joins so other systems (notably
+## TaskCompletionBeat) can resolve a room's root node without a direct
+## reference. Matches the contract specified in
+## design/gdd/task-completion-beat.md §Detailed Rules #10.
+const BUNKER_ROOMS_GROUP: StringName = &"bunker_rooms"
+
+
 # ─── RoomData (typed inner class, per Rule 4) ────────────────────────────────
 
 class RoomData:
@@ -42,6 +51,17 @@ class RoomData:
 		agent_ids = []
 
 
+# ─── Room (Node2D placeholder, per Rule 11) ──────────────────────────────────
+
+## Lightweight Node2D representing a room's visual root in the scene tree.
+## Created by RoomSystem in `_ready()` per Rule 11. Exposes `room_id` as a
+## typed property so callers using duck-typing (`"room_id" in node`) can
+## resolve identity. Future props, floor tiles, and wall tiles get reparented
+## under this node so modulate Tweens (TaskCompletionBeat) propagate visually.
+class Room extends Node2D:
+	var room_id: StringName = &""
+
+
 # ─── Dependencies (scene-wired) ──────────────────────────────────────────────
 
 @export var tile_map_renderer: TileMapRenderer = null
@@ -49,7 +69,8 @@ class RoomData:
 
 # ─── Internal state ──────────────────────────────────────────────────────────
 
-var _rooms: Dictionary = {}    # room_id (StringName) → RoomData
+var _rooms: Dictionary = {}        # room_id (StringName) → RoomData
+var _room_nodes: Dictionary = {}   # room_id (StringName) → Room (Node2D)
 
 
 # ─── Godot lifecycle ─────────────────────────────────────────────────────────
@@ -57,6 +78,7 @@ var _rooms: Dictionary = {}    # room_id (StringName) → RoomData
 func _ready() -> void:
 	_populate_mvp_rooms()
 	_register_rooms_with_tilemap()
+	_instantiate_room_nodes()
 	# Per Rule 6: agent assignment is NOT done in _ready() — Bootstrap calls
 	# assign_agent() after all _ready()s complete so signals don't fire before
 	# subscribers connect.
@@ -94,6 +116,41 @@ func _register_rooms_with_tilemap() -> void:
 		tile_map_renderer.register_room(StringName(room_id), data.bounds)
 
 
+# ─── Room Node2D instantiation (per Rule 11) ─────────────────────────────────
+
+## Creates one `Room` Node2D per registered room and adds it as a child of
+## RoomSystem. Each room node:
+##   • is named after its room_id (String)
+##   • is positioned at the top-left corner of its bounds in world space
+##     (`bounds.position * TileMapRenderer.CELL_SIZE`)
+##   • exposes `room_id: StringName` as a typed property
+##   • joins the `bunker_rooms` scene-tree group
+##
+## Rationale: TaskCompletionBeat's modulate Tween targets a Node2D whose
+## `modulate` propagates to all descendants. Future props, floor decorations,
+## and wall tiles will be reparented under the matching Room node so the
+## task-completion flash is visually self-contained per room.
+##
+## Falls back to CELL_SIZE = 16 when tile_map_renderer is unwired (test path);
+## production scenes must wire it for correct positioning.
+func _instantiate_room_nodes() -> void:
+	var cell_size: int = 16
+	if tile_map_renderer != null:
+		cell_size = tile_map_renderer.get_cell_size()
+	for room_id: Variant in _rooms.keys():
+		var data: RoomData = _rooms[room_id]
+		var room_node: Room = Room.new()
+		room_node.name = String(room_id)
+		room_node.room_id = StringName(room_id)
+		room_node.position = Vector2(
+			float(data.bounds.position.x * cell_size),
+			float(data.bounds.position.y * cell_size),
+		)
+		room_node.add_to_group(BUNKER_ROOMS_GROUP)
+		add_child(room_node)
+		_room_nodes[StringName(room_id)] = room_node
+
+
 # ─── Public API (per Rule 7 / GDD §Interactions) ─────────────────────────────
 
 ## Returns the RoomData for a room, or null if unknown.
@@ -116,6 +173,23 @@ func get_room_for_agent(agent_id: String) -> StringName:
 		if agent_id in data.agent_ids:
 			return room_id
 	return &""
+
+
+## Returns the Room Node2D for a given room_id, or null if unknown.
+## Resolution path matches the bunker_rooms group lookup specified in
+## task-completion-beat.md §10 — but exposed as direct API for callers
+## that hold a RoomSystem reference, avoiding a tree-wide group scan.
+func get_room_node(room_id: StringName) -> Node2D:
+	return _room_nodes.get(room_id, null)
+
+
+## Returns the Room Node2D for an agent's assigned room, or null if the
+## agent is unassigned or the room has no instantiated node.
+func get_room_node_for_agent(agent_id: String) -> Node2D:
+	var room_id: StringName = get_room_for_agent(agent_id)
+	if room_id == &"":
+		return null
+	return _room_nodes.get(room_id, null)
 
 
 ## Returns the workstation tile for an agent within their department room.
