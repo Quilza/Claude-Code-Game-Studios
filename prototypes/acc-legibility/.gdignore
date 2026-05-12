@@ -1,0 +1,3 @@
+# Skip this subdirectory when importing the main project at the repo root.
+# This is a separate Godot project (has its own project.godot) used to
+# validate the ACC legibility hypothesis (Pillar 2 — Readable at a Glance).

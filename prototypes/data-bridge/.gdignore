@@ -1,0 +1,3 @@
+# Skip this subdirectory when importing the main project at the repo root.
+# This is a separate Godot project (has its own project.godot) used as a
+# Sprint 1 prototype scaffold. See production/sprints/sprint-1.md.
