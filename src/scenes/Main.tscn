@@ -1,0 +1,21 @@
+[gd_scene load_steps=3 format=3 uid="uid://bsituationroommain"]
+
+[ext_resource type="Script" path="res://src/scenes/main_scene_bootstrap.gd" id="1_bootstrap"]
+[ext_resource type="Script" path="res://src/core/tilemap_renderer.gd" id="2_tilemap"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1_bootstrap")
+
+[node name="WorldRoot" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="TileMapRenderer" type="Node2D" parent="WorldRoot"]
+y_sort_enabled = true
+script = ExtResource("2_tilemap")
+
+[node name="HudLayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="OverlayLayer" type="CanvasLayer" parent="."]
+layer = 20
+visible = false
