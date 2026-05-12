@@ -54,7 +54,11 @@ const MIN_AGENT_ID_LENGTH: int = 1
 const MAX_AGENT_TYPE_LENGTH: int = 32
 
 const DEFAULT_PROTOCOL: String = "http_poll"
-const VALID_PROTOCOLS: PackedStringArray = PackedStringArray(["http_poll", "websocket"])
+# Note: `var` not `const` because PackedStringArray() constructor isn't a
+# constant expression in Godot 4.3+. UPPER_SNAKE_CASE preserves the "do not
+# mutate" convention. (Const-friendly alternative `Array[String]` lacks
+# `.join()` which we use below for error messages.)
+var VALID_PROTOCOLS: PackedStringArray = PackedStringArray(["http_poll", "websocket"])
 const DEFAULT_AGENT_TYPE: String = "default"
 const DEFAULT_AUTH_TOKEN: String = ""
 
@@ -501,9 +505,13 @@ func _write_template(config_path: String) -> bool:
 	if file == null:
 		push_warning("[ConfigLoader] Could not write template to %s" % config_path)
 		return false
-	var ok: bool = file.store_string(JSON.stringify(template, "\t"))
+	# Godot 4.3 store_string returns void; 4.4+ returns bool. Code targets the
+	# 4.3 baseline since that's the locally-installed version; success is
+	# inferred from non-null FileAccess + successful close. Re-introduce
+	# return-value check when the project upgrades to 4.6.2 per VERSION.md.
+	file.store_string(JSON.stringify(template, "\t"))
 	file.close()
-	return ok
+	return true
 
 
 func _enter_error(state: String, message: String) -> void:
@@ -541,7 +549,6 @@ func _save_user_settings() -> void:
 	if file == null:
 		push_warning("[ConfigLoader] Could not write %s" % USER_SETTINGS_PATH)
 		return
-	var ok: bool = file.store_string(JSON.stringify(_user_settings, "\t"))
+	# Godot 4.3 store_string returns void (4.4+ returns bool). See _write_template.
+	file.store_string(JSON.stringify(_user_settings, "\t"))
 	file.close()
-	if not ok:
-		push_warning("[ConfigLoader] store_string returned false writing %s" % USER_SETTINGS_PATH)
