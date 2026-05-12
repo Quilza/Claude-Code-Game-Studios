@@ -396,7 +396,7 @@ ACs are testable conditions QA can verify pass/fail. Each maps to a Section 3 ru
 
 ### 8.3 Transient state and decay (Rule 6)
 
-**AC-12**: Entering `completed` schedules a Timer of duration `COMPLETED_DECAY_SEC`. After 1.5s ± 100ms, ASM transitions to `idle`. (GUT: `test_completed_decays_to_idle_after_1500ms`)
+**AC-12**: Entering `completed` schedules a Timer of duration `COMPLETED_DECAY_SEC`. After 1.5s ± 50ms (per cross-GDD review tightening), ASM transitions to `idle`. (GUT: `test_completed_decays_to_idle_after_1500ms`)
 
 **AC-13**: When a new payload arrives mid-decay (e.g., at T+0.8s), the active decay Timer is killed, and the new payload's state takes precedence immediately.
 
@@ -430,7 +430,7 @@ ACs are testable conditions QA can verify pass/fail. Each maps to a Section 3 ru
 
 **AC-25**: On every successful payload, `total_input_tokens` and `total_output_tokens` increment by the respective `usage` values. Missing `usage` fields contribute 0 (no error).
 
-**AC-26**: After a state transition, the `_stats_dirty[agent_id]` flag is set. Within `STATS_WRITE_INTERVAL_SEC + 100ms`, ConfigurationLoader receives a `set_setting("asm_stats_<agent_id>", ...)` call. The flag is then cleared.
+**AC-26**: After a state transition, the `_stats_dirty[agent_id]` flag is set. Within `STATS_WRITE_INTERVAL_SEC + 100ms`, ConfigurationLoader receives a `set_setting("asm_stats_<agent_id>", ...)` call (per the extended ConfigLoader public API documented in `configuration-loader.md` — arbitrary-key access landed 2026-05-12 per C-9). The flag is then cleared.
 
 **AC-27**: On `_exit_tree()`, all dirty agents flush regardless of Timer state.
 
@@ -438,11 +438,11 @@ ACs are testable conditions QA can verify pass/fail. Each maps to a Section 3 ru
 
 ### 8.7 Orthogonality (Rules 11, 16)
 
-**AC-29**: ASM does NOT subscribe to `agent_connection_changed`. Mocking both `agent_response_received` (with a `completed` payload) AND `agent_connection_changed("DISCONNECTED")` simultaneously produces the same agent state result as mocking just `agent_response_received`. (GUT: `test_connection_and_agent_state_are_independent`)
+**AC-29**: ASM does NOT subscribe to `agent_connection_changed`. Verified via two-part check: (a) **code-review assertion** — ASM source has zero `connect(...)` calls naming `agent_connection_changed`; (b) **behavioral test** — mocking `agent_response_received` (with a `completed` payload) produces the expected state transition independent of any concurrent `agent_connection_changed` mock emissions (which ASM should not receive). (GUT: `test_connection_and_agent_state_are_independent`; lint: `grep agent_connection_changed asm.gd` returns 0 hits.)
 
 ### 8.8 Edge case ACs
 
-**AC-30**: Corrupt persisted stats blob (E-14) → that agent's stats zero-initialize, other agents preserved, warning emitted, app continues.
+**AC-30**: Corrupt persisted stats blob (E-14) → that agent's stats zero-initialize, other agents preserved, warning emitted, app continues. "Corrupt" enumerates explicitly: (a) value is not a Dictionary, (b) required field missing (e.g., `tasks_completed` absent), (c) field type mismatch (e.g., `tasks_completed` is a String instead of int). Each variant triggers the same zero-init + warning behavior. (GUT: three test variants — `test_corrupt_blob_not_dict`, `test_corrupt_blob_missing_field`, `test_corrupt_blob_type_mismatch`.)
 
 **AC-31**: Orphan stats blob (E-15) → no automatic deletion. The `asm_stats_<orphan_id>` key remains in `user://settings.json` indefinitely.
 

@@ -1,14 +1,15 @@
 # Control Manifest — The Situation Room
 
-**Manifest Version**: 2026-05-12.2
+**Manifest Version**: 2026-05-12.3
 **Engine**: Godot 4.6.2
-**Source**: 14 Accepted ADRs (0001–0014) + amendments per `verify-sweep-2026-05-12.md` + Sprint 1 ADR-0007 finalisation
+**Source**: 14 Accepted ADRs (0001–0014) + amendments per `verify-sweep-2026-05-12.md` + Sprint 1 ADR-0007 finalisation + Cross-GDD review reconciliation
 **Status**: Active
 
 **Version log**:
 - `2026-05-12` — initial extraction from 13 Accepted ADRs
 - `2026-05-12.1` — post-engine-verify-sweep amendments: AudioContext unlock pattern upgraded (ADR-0004 A1); HUD recursive-IGNORE guardrail (ADR-0011 A1); world Tab-handler restriction (ADR-0011 A2); Retina smoke-test list expanded (ADR-0013 A1); VERIFY ledger updated with sweep verdicts
 - `2026-05-12.2` — **ADR-0007 Agent State Vocabulary** authored + Accepted after Sprint 1 Data Bridge prototype against real Anthropic API. All 14 architectural ADRs now in final state. New Agent State Machine layer added below.
+- `2026-05-12.3` — Cross-GDD review (`design/reviews/gdd-cross-review-2026-05-12.md`) reconciled. Five Feature/Presentation/Foundation GDDs updated to ASM's locked contract (ACC/AAL/HUD/TCB/Room): StringName→String for agent_id, 3-arg agent_state_changed, ACC drops task_completed emission claim, Room System API alignment, computer_interacted signal documented. Data Bridge GDD amended with B1-B5 (request_dispatched/settled, 4xx-fatal, agent_poll_failed removed). ConfigLoader public API extended with `get_setting`/`set_setting` for arbitrary keys + `entities.yaml` ingestion. ASM ACs tightened (AC-12 ±50ms, AC-26 ConfigLoader reference, AC-29 two-part check, AC-30 corruption-mode enumeration).
 
 > **For programmers**: This is your flat rules sheet. Required / Forbidden / Guardrails per layer. Extracted mechanically from Accepted ADRs. Where you need the **why**, read the ADR. Where you need the **what**, this manifest is enough.
 >
@@ -44,11 +45,14 @@
 
 ## Configuration / Persistence layer
 
-### Required (ADR-0002, ADR-0003, ADR-0004)
+### Required (ADR-0002, ADR-0003, ADR-0004; extended 2026-05-12.3 per C-9 of cross-GDD review)
 - ConfigurationLoader is an Autoload (ADR-0003).
 - ConfigurationLoader parses `config.json` per-platform path resolution (PC/macOS/web/editor).
-- `user://settings.json` is the only persistent runtime mutation surface; written via `set_setting(key, value)` which emits `setting_changed(key, value)`.
+- ConfigurationLoader also ingests `res://design/registry/entities.yaml` at bootstrap (read-only, design-time tuning constants).
+- `user://settings.json` is the persistent runtime mutation surface; written via `set_setting(key, value)` which emits `setting_changed(key, value)`.
+- **Arbitrary-key access**: `get_setting(key: String, default: Variant) -> Variant` reads from `user://settings.json` first, then `entities.yaml`, then returns `default`. `set_setting(key, value)` always writes to `user://settings.json`. Keys are dotted strings (e.g. `asm.completed_decay_sec`, `asm_stats_<agent_id>`, `audio.master_volume_db`).
 - Schema versioning: `schema_version: int` field present; mismatch → CONFIG_INVALID state.
+- Corrupt persisted blob handling: callers are responsible for type-checking the returned value and falling back to default + `push_warning` if shape is wrong (per ASM §5 E-14 pattern).
 - Test-mode fallback returns safe defaults when config absent (editor only).
 - **Web override (ADR-0004)**: after parsing `config.json`, if `OS.has_feature("web")` and `not _config.get("mock", false)`, force `_config["mock"] = true` and set `_config["web_mock_forced"] = true`. Emit `push_warning`.
 

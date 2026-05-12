@@ -98,10 +98,15 @@ Each agent has its own connection state, tracked independently:
 - `ConfigurationLoader.get_protocol()` → `String`: must equal `"http_poll"` in MVP
 
 **Data Bridge → Agent State Machine (downstream, signals):**
-- `agent_response_received(agent_id: String, http_status: int, raw_payload: String)` — emitted on every successful HTTP 200 poll
-- `agent_connection_changed(agent_id: String, connection_state: String)` — emitted on every state transition
-- `agent_poll_failed(agent_id: String, error_code: int, http_status: int, error_message: String)` — emitted after grace period when errors surface
-  *(agent_id type corrected from StringName → String per ADR-0001; value originates from JSON parsing)*
+- `agent_response_received(agent_id: String, raw_payload: String)` — emitted on every successful HTTP 2xx poll. *(Signature corrected to 2-arg 2026-05-12 per Amendment 2026-05-12.b — HTTP status code is bridge-internal and not part of the public contract; ASM doesn't need it. agent_id type per ADR-0001 is String.)*
+- `agent_connection_changed(agent_id: String, new_state: String)` — emitted on every connection-state transition. `new_state` ∈ `{CONNECTING, CONNECTED, STALE, DISCONNECTED, ERROR}`.
+- `request_dispatched(agent_id: String)` — emitted immediately before each `HTTPRequest.request()` call. *(Added 2026-05-12 per ADR-0001 Amendment B2 — required by ASM Rule 5 for `working` state visibility.)*
+- `request_settled(agent_id: String)` — emitted after `_on_request_completed` returns, regardless of success or failure. *(Added 2026-05-12 per ADR-0001 Amendment B2 — pairs with `request_dispatched`; ASM uses presence/absence of preceding `agent_response_received` to differentiate clean success from network failure.)*
+
+**Data Bridge → public read-only accessor (Tier 3 per ADR-0006):**
+- `is_request_in_flight(agent_id: String) -> bool` — returns true between `request_dispatched` and `request_settled`. *(Added 2026-05-12 per ADR-0001 Amendment B2.)*
+
+**Removed signal**: `agent_poll_failed` *(deprecated 2026-05-12 per Amendment 2026-05-12.b)*. The signal had no consumer — failure reporting is now collapsed into `agent_connection_changed("STALE" | "DISCONNECTED" | "ERROR")` for connection-health and `request_settled` (without preceding `agent_response_received`) for in-flight failure. Any text below that still references `agent_poll_failed` is stale — see Amendment 2026-05-12.b for the consolidated handling.
 
 ---
 
@@ -194,13 +199,71 @@ The Configuration Loader is responsible for validating uniqueness — this is ca
 
 | System | What it needs from Data Bridge | Status |
 |---|---|---|
-| Agent State Machine | `agent_response_received`, `agent_connection_changed`, `agent_poll_failed` signals | ⬜ Not yet designed — **Agent State Machine GDD must not be authored until prototype questions 4 and 5 are answered** |
+| Agent State Machine | `agent_response_received`, `agent_connection_changed`, `request_dispatched`, `request_settled` signals + `is_request_in_flight()` accessor | ✅ Designed 2026-05-12 (`design/gdd/agent-state-machine.md`). Prototype Qs 4-5 answered in Sprint 1; ADR-0007 Accepted; ADR-0001 Amendment 2026-05-12.b added the in-flight signal pair. |
 
 **Implementation dependencies (not GDD dependencies):**
 
 - **Godot `HTTPRequest` node**: verified stable through Godot 4.6.2; no breaking changes in 4.4–4.6 range. Confirm `request_completed` signal signature against live docs before implementation.
 - **Godot `SceneTree` timer** (`create_timer`): used for poll interval scheduling; respects node `process_mode`
 - **Mock data files** (`assets/data/mock/[agent_id].json`): must exist for every agent when mock mode is active; the Data Bridge does not create them at runtime
+
+---
+
+## Amendment 2026-05-12.b (post-Sprint-1 prototype)
+
+Source: ADR-0001 Amendment 2026-05-12.b, `prototypes/data-bridge/findings.md`. The Sprint 1 prototype run against the live Anthropic Messages API surfaced two real-world findings that the GDD's pre-prototype draft did not anticipate. This amendment brings the GDD to parity with ADR-0001's Accepted amendment.
+
+### B1 — 4xx config-fatal vs 5xx/network transient differentiation
+
+**Empirical finding**: Anthropic returns HTTP 400 (not 402) for credit-balance errors; HTTP 404 for missing models; HTTP 401 for invalid keys. These are config-fatal — auto-healing will never succeed until the user fixes their `config.json`. Treating them as transient burns API calls and confuses the bridge into perpetual backoff.
+
+**Amended rule**: when `response_code >= 400 and response_code < 500`, transition directly to DISCONNECTED (skip the grace curve). Push a warning ("config-fatal — bridge will not retry until config changes"). 5xx and network errors retain the original grace→STALE→DISCONNECTED curve and auto-heal on success.
+
+Recovery from 4xx-induced DISCONNECTED requires either a `ConfigurationLoader.setting_changed` event (user fixed config) or a manual bridge restart (scene reload).
+
+### B2 — request_dispatched + request_settled signal pair (required by ASM)
+
+**Background**: ASM's `working` state (per ADR-0007) needs to fire when a request goes out, BEFORE the response arrives. Without bridge-side visibility into in-flight state, HUD shows `idle` during the request window — which can be hundreds of milliseconds.
+
+**New signals**:
+- `request_dispatched(agent_id: String)` — fires immediately before each `HTTPRequest.request()` call (or, in mock mode, before the simulated dispatch)
+- `request_settled(agent_id: String)` — fires after `_on_request_completed` returns, regardless of outcome
+
+**New accessor**: `is_request_in_flight(agent_id: String) -> bool` — true between dispatched and settled
+
+Contract: every dispatched MUST have exactly one matching settled, in order, for the same agent. Network errors and timeouts still produce a settled (with no preceding `agent_response_received`); ASM uses that pattern to differentiate clean success from failure.
+
+### B3 — Anthropic error envelope shape (documented for ASM)
+
+Empirically observed Anthropic error response body:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error" | "not_found_error" | "rate_limit_error" | "api_error" | "overloaded_error",
+    "message": "human-readable reason"
+  },
+  "request_id": "req_..."
+}
+```
+
+Bridge does NOT parse this (raw String passthrough per ADR-0001 single-writer rule). ASM parses it per ADR-0007's derivation rule. Documented here for cross-reference.
+
+### B4 — Rate-limit header parsing (deferred, post-MVP)
+
+Anthropic returns `anthropic-ratelimit-requests-limit`, `anthropic-ratelimit-requests-remaining`, `anthropic-ratelimit-requests-reset` (and tokens-equivalents) in response headers. A production bridge should parse these and adapt poll cadence dynamically.
+
+**MVP stance**: ignore these headers. Default cadence is comfortable at 12-agent scale on free tier. Revisit post-MVP if real users at scale trigger rate-limiting.
+
+### B5 — Removed signal: agent_poll_failed
+
+The pre-prototype draft included `agent_poll_failed(agent_id, error_code, http_status, error_message)`. After Sprint 1 review (`design/reviews/gdd-cross-review-2026-05-12.md` C-2), this signal had **no downstream consumer**: ASM, HUD, ACC, AAL all consume `agent_connection_changed` instead. Failure reporting is consolidated:
+
+- Connection-level failures (sustained errors): `agent_connection_changed("STALE" | "DISCONNECTED" | "ERROR")`
+- Per-request failures (single in-flight didn't succeed): `request_settled` without preceding `agent_response_received`
+
+Any operator that wants the rich error detail can read the bridge's internal `last_error_response[agent_id]` Dictionary at debug time. Public signals stay narrow.
 
 **Bidirectional note:** The Configuration Loader GDD already references the Data Bridge as a downstream consumer of its Integration data class. No update to that GDD required.
 
@@ -241,15 +304,22 @@ The Data Bridge's contribution to Pillar 1 (Alive by Default) and Pillar 2 (Read
 
 - [ ] **AC-05** When polls fail, the agent transitions through grace period (1 failure, no event) → STALE (2nd failure, emit `agent_connection_changed`) → DISCONNECTED (4th failure, emit `agent_connection_changed`) in the correct sequence.
 - [ ] **AC-06** When a poll times out, the `HTTPRequest` node cancels cleanly. The coroutine receives the timeout error, waits the retry interval, and re-polls. The node is not left in a hung state.
-- [ ] **AC-07** When a poll returns HTTP 200 with an empty body, `agent_poll_failed` is emitted (not `agent_response_received`). The agent enters the grace period sequence.
+- [ ] **AC-07** When a poll returns HTTP 200 with an empty body, the failure path engages (`request_settled` fires without preceding `agent_response_received`; `agent_connection_changed` follows the backoff curve to STALE/DISCONNECTED as the counter advances). The empty body is treated as a failed poll. *(Amended 2026-05-12 — was previously `agent_poll_failed`; that signal is removed.)*
 - [ ] **AC-08** When a disconnected agent's endpoint becomes reachable again, the next successful poll transitions the agent to CONNECTED and emits `agent_response_received`. No manual intervention required.
 - [ ] **AC-09** One agent entering DISCONNECTED state has zero effect on the polling cadence of all other agents.
 
 ### Mock Mode
 
 - [ ] **AC-10** In mock mode, an agent with a valid mock data file cycles through all entries in sequence across successive poll ticks. After the last entry, the next poll returns index 0.
-- [ ] **AC-11** In mock mode, an agent with a mock entry of `http_status: 0` emits `agent_poll_failed` and enters the backoff sequence identically to a real timeout.
-- [ ] **AC-12** In mock mode, an agent with a missing mock file emits `agent_poll_failed` on every poll tick and never reaches CONNECTED state.
+- [ ] **AC-11** In mock mode, an agent with a mock entry simulating timeout fires `request_settled` without preceding `agent_response_received`, advancing the backoff sequence identically to a real timeout. *(Amended 2026-05-12 — replaces `agent_poll_failed`.)*
+- [ ] **AC-12** In mock mode, an agent with a missing mock file fires `request_settled` without payload on every poll tick and never reaches CONNECTED state. *(Amended 2026-05-12.)*
+
+### New ACs added per Amendment 2026-05-12.b
+
+- [ ] **AC-22** HTTP 4xx response from a real-API poll: bridge transitions directly to DISCONNECTED (skips the grace curve). Does NOT auto-heal until config changes. (Per ADR-0001 B1.)
+- [ ] **AC-23** HTTP 5xx or network error from a real-API poll: bridge follows the original grace → STALE → DISCONNECTED curve and auto-heals on first success.
+- [ ] **AC-24** Every `request_dispatched(agent_id)` is followed by exactly one `request_settled(agent_id)`, in order, for the same agent_id. (No orphan dispatches; no settled-without-dispatched.)
+- [ ] **AC-25** Between `request_dispatched` and `request_settled`, `is_request_in_flight(agent_id) == true`. Outside that window, it returns false.
 - [ ] **AC-13** Mock-mode agents emit events that are structurally indistinguishable from live-mode events. A connected Agent State Machine cannot determine which mode is active from signal data alone.
 
 ### Initialization

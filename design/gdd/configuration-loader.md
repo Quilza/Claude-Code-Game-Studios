@@ -128,11 +128,36 @@ All error states are terminal. The application must be restarted to retry.
 
 | Method | Return Type | Consumers |
 |---|---|---|
-| `get_agents() -> Array[Dictionary]` | All agent dicts | Data Bridge, Room System |
-| `get_agent(id: String) -> Dictionary` | One agent dict, or `{}` if not found | Data Bridge |
+| `get_agents() -> Array[Dictionary]` | All agent dicts | Data Bridge, Room System, HUD |
+| `get_agent(id: String) -> Dictionary` | One agent dict, or `{}` if not found | Data Bridge, TCB |
 | `get_poll_interval() -> float` | Float | Data Bridge |
 | `get_protocol() -> String` | `"http_poll"` or `"websocket"` | Data Bridge |
 | `get_applied_defaults() -> Array[String]` | List of defaulted field names | Main Scene Bootstrap (diagnostics) |
+| `get_setting(key: String, default: Variant = null) -> Variant` | Looked-up value or default | ASM (entities.yaml tuning + persisted stats), Audio Manager (settings), future systems |
+| `set_setting(key: String, value: Variant) -> void` | — | ASM (persisted stats writes), Audio Manager (mute/volume preferences) |
+| `is_mock() -> bool` | True iff config.json's `mock: true` OR ADR-0004 web override fired | Data Bridge, mock-aware systems |
+| `is_web_mock_forced() -> bool` | True iff the ADR-0004 web override applied | HUD demo-mode badge (post-MVP) |
+
+**Arbitrary-key access (added 2026-05-12 per C-9 of cross-GDD review)**
+
+`get_setting` / `set_setting` provide an arbitrary-key key/value surface backed by two files:
+- **Read precedence (top to bottom)**: `user://settings.json` ← `design/registry/entities.yaml` ← `default` argument
+- **Writes always go to `user://settings.json`.** `entities.yaml` is read-only (design-time authoring; ships with the build).
+- Keys are dotted strings, e.g. `"asm.completed_decay_sec"`, `"asm_stats_claude_dev"`, `"audio.master_volume_db"`.
+- `setting_changed(key: String, value: Variant)` signal fires on every successful `set_setting` (per ADR-0002).
+- Schema versioning + corrupt-blob handling: on read, if the value at `key` is incompatible with the consumer's expected schema, the consumer is responsible for falling back to default + `push_warning` (ASM does this for corrupt stats blobs per its §5 E-14).
+
+**File layout** for arbitrary-key access:
+```
+user://settings.json    ← writable, gitignored, per-user runtime state
+                        (audio settings, hud_visible, asm_stats_<id>, etc.)
+
+res://design/registry/entities.yaml
+                        ← read-only, shipped with build, design-time tuning
+                        (asm.completed_decay_sec, audio bus volumes, etc.)
+```
+
+This consolidation keeps ConfigurationLoader as the single autoload responsible for persistent configuration — preserving ADR-0003's two-autoload limit (no new `EntityRegistry` needed). Added per `design/reviews/gdd-cross-review-2026-05-12.md` C-9 with user-selected resolution "Extend ConfigLoader."
 
 **Config file schema — global fields:**
 
