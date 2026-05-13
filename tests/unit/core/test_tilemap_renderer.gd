@@ -205,3 +205,77 @@ func test_alert_overlay_starts_hidden() -> void:
 	var r: TileMapRenderer = _make_renderer()
 	assert_false(r.alert_overlay_layer.visible, "Alert overlay should start hidden per Rule 1")
 	r.queue_free()
+
+
+# ─── Tileset + room painting (LimeZu tile integration) ───────────────────────
+
+func test_tileset_built_with_floor_and_wall_sources_when_assets_present() -> void:
+	# Asserts: when floor + wall PNGs exist on disk, _setup_tileset builds
+	# atlas sources for both and assigns the shared TileSet to floor + wall
+	# layers. Asset files are committed at assets/sprites/tiles/.
+	var r: TileMapRenderer = _make_renderer()
+	assert_true(r._test_has_floor_source(),
+		"Floor source should be built from floor_bedroom.png")
+	assert_true(r._test_has_wall_source(),
+		"Wall source should be built from wall_bedroom.png")
+	assert_not_null(r.floor_layer.tile_set, "Floor layer must have a TileSet attached")
+	assert_not_null(r.wall_layer.tile_set, "Wall layer must have a TileSet attached")
+	assert_eq(r.floor_layer.tile_set, r.wall_layer.tile_set,
+		"Floor + wall layers share a single TileSet for tile_size consistency")
+	r.queue_free()
+
+
+func test_register_room_paints_floor_in_interior_cells() -> void:
+	# Arrange / Act — register a 6x4 room at (10, 10)
+	var r: TileMapRenderer = _make_renderer()
+	r.register_room(&"test_room", Rect2i(10, 10, 6, 4))
+
+	# Assert — interior cell (12, 12) should have a floor source assigned
+	# (not the empty sentinel -1).
+	var interior_source: int = r._test_floor_source_at(Vector2i(12, 12))
+	assert_ne(interior_source, -1, "Interior cell must have floor source painted")
+	r.queue_free()
+
+
+func test_register_room_paints_walls_on_all_four_perimeter_edges() -> void:
+	# Arrange / Act — register a 6x4 room at (10, 10) → perimeter at
+	# x ∈ {10, 15}, y ∈ {10, 13}.
+	var r: TileMapRenderer = _make_renderer()
+	r.register_room(&"test_room", Rect2i(10, 10, 6, 4))
+
+	# Assert — all four corners should have wall sources.
+	assert_ne(r._test_wall_source_at(Vector2i(10, 10)), -1, "Top-left corner has wall")
+	assert_ne(r._test_wall_source_at(Vector2i(15, 10)), -1, "Top-right corner has wall")
+	assert_ne(r._test_wall_source_at(Vector2i(10, 13)), -1, "Bottom-left corner has wall")
+	assert_ne(r._test_wall_source_at(Vector2i(15, 13)), -1, "Bottom-right corner has wall")
+	# Mid-edge samples
+	assert_ne(r._test_wall_source_at(Vector2i(12, 10)), -1, "Top edge mid has wall")
+	assert_ne(r._test_wall_source_at(Vector2i(12, 13)), -1, "Bottom edge mid has wall")
+	assert_ne(r._test_wall_source_at(Vector2i(10, 11)), -1, "Left edge mid has wall")
+	assert_ne(r._test_wall_source_at(Vector2i(15, 11)), -1, "Right edge mid has wall")
+	r.queue_free()
+
+
+func test_register_room_does_not_paint_walls_inside_room_interior() -> void:
+	# Wall painting is perimeter-only. An interior cell (not on any edge)
+	# should have NO wall source.
+	var r: TileMapRenderer = _make_renderer()
+	r.register_room(&"test_room", Rect2i(10, 10, 6, 4))
+
+	# (12, 12) is 2 cells from any edge — fully interior.
+	assert_eq(r._test_wall_source_at(Vector2i(12, 12)), -1,
+		"Interior cell must NOT have wall source painted")
+	r.queue_free()
+
+
+func test_register_room_paints_floor_even_under_walls() -> void:
+	# Floor fills the entire rect including perimeter cells (walls render on
+	# top via higher z_index). This ensures no visible "gap" appears between
+	# the floor edge and the wall.
+	var r: TileMapRenderer = _make_renderer()
+	r.register_room(&"test_room", Rect2i(10, 10, 6, 4))
+
+	# Corner cell (10, 10) has BOTH floor + wall painted
+	assert_ne(r._test_floor_source_at(Vector2i(10, 10)), -1, "Floor painted under corner")
+	assert_ne(r._test_wall_source_at(Vector2i(10, 10)), -1, "Wall painted at corner")
+	r.queue_free()
