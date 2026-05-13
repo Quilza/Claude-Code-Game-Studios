@@ -57,9 +57,11 @@ func test_working_signal_sets_walk_target_same_frame() -> void:
 	var rs: RoomSystem = stack["rs"]
 	var asm: Node = stack["asm"]
 	var acc: AgentCharacterController = stack["acc"]
-	# ACC._ready() snaps to workstation; reset position to room corner so we
-	# can observe walking back toward the workstation.
-	acc.position = Vector2(352.0, 16.0)   # AGENT_ROOM top-left in world space
+	# ACC._ready() snaps to workstation; reset position to a different spot
+	# inside the bedroom so we can observe walking back toward the workstation.
+	# Commander's room bounds = (1,1,20,15) → world (16,16) to (336,240).
+	# Place agent at far corner.
+	acc.position = Vector2(280.0, 200.0)
 	# Workstation tile is (28, 5); world center = (28*16+8, 5*16+8) = (456, 88).
 	var expected_target: Vector2 = stack["tm"].tile_to_world(
 		rs.get_workstation_for_agent("claude_dev"))
@@ -80,7 +82,7 @@ func test_acc_position_advances_toward_workstation_over_physics_frames() -> void
 	var stack: Dictionary = _make_stack("claude_dev")
 	var asm: Node = stack["asm"]
 	var acc: AgentCharacterController = stack["acc"]
-	acc.position = Vector2(352.0, 16.0)
+	acc.position = Vector2(280.0, 200.0)   # far corner of commander's room
 	asm.agent_state_changed.emit("claude_dev", AsmScript.STATE_WORKING, AsmScript.STATE_IDLE)
 	var start_pos: Vector2 = acc.position
 	var target: Vector2 = acc.get_walk_target()
@@ -137,42 +139,36 @@ func test_phase2_visiting_category_drops_its_recency_to_floor() -> void:
 	# Act
 	acc._pick_idle_wander_target()
 
-	# Assert — whichever category was picked dropped to floor; the others
-	# stayed at 1.0.
+	# Assert — single-room MVP: own_room is always pickable (CAT_OTHER_ROOM
+	# is filtered out because no other rooms exist). Whichever pickable
+	# category gets chosen has its recency drop to floor. Other categories'
+	# recency is unaffected.
 	var picked: String = acc._test_get_current_category()
 	assert_ne(picked, "", "A category must have been picked")
+	assert_ne(picked, ACCScript.CAT_OTHER_ROOM,
+		"CAT_OTHER_ROOM cannot be picked when only one room exists")
 	assert_almost_eq(acc._test_get_recency(picked), ACCScript.C_RECENCY_FLOOR, 0.0001,
 		"Picked category's recency dropped to floor")
-	# Verify another category did not also drop.
-	var other: String = ACCScript.CAT_OWN_ROOM if picked != ACCScript.CAT_OWN_ROOM else ACCScript.CAT_OTHER_ROOM
-	assert_almost_eq(acc._test_get_recency(other), 1.0, 0.0001,
+	# Verify CAT_OTHER_ROOM's recency stays at 1.0 (it was never picked).
+	assert_almost_eq(acc._test_get_recency(ACCScript.CAT_OTHER_ROOM), 1.0, 0.0001,
 		"Non-picked category's recency is preserved")
 
 	_cleanup(stack)
 
 
-func test_phase2_other_room_is_picked_when_only_other_room_available() -> void:
-	# Force-pick other_room by setting up two rooms but no peers.
-	# Then suppress own_room and social weights to zero via maxed-out recency
-	# trick (set own_room recency to a tiny number — still nonzero but tiny —
-	# and verify other_room gets picked over many trials).
-	# More deterministic: directly test the _pick_other_room_target helper.
+func test_phase2_other_room_returns_null_when_no_other_rooms_registered() -> void:
+	# Single-room MVP: the agent's own room IS the only room, so the
+	# `other_room` waypoint category has no candidates. _pick_other_room_target
+	# must return null so _build_effective_weights drops the category from
+	# the weighted sample (no wasted weight allocation).
 	var stack: Dictionary = _make_stack("claude_dev")
-	var rs: RoomSystem = stack["rs"]
 	var acc: AgentCharacterController = stack["acc"]
 
 	# Act
 	var target: Variant = acc._pick_other_room_target()
 
-	# Assert — target is inside the commander's room bounds (the only other
-	# room registered besides agent_01). commander bounds = (1, 1, 20, 15)
-	# → world rect (16, 16) to (336, 240).
-	assert_not_null(target, "Other-room pick must succeed when commander's room is registered")
-	var t: Vector2 = target as Vector2
-	assert_gte(t.x, 16.0)
-	assert_lte(t.x, 336.0)
-	assert_gte(t.y, 16.0)
-	assert_lte(t.y, 240.0)
+	# Assert — no other rooms → null target → wander falls back to own_room
+	assert_null(target, "other_room picker must return null when only one room is registered")
 
 	_cleanup(stack)
 
@@ -220,9 +216,9 @@ func test_phase2_social_picks_near_peer_position() -> void:
 	_cleanup(stack)
 
 
-func test_idle_wandering_picks_target_inside_some_registered_room_bounds() -> void:
-	# Phase 2: picker can choose own_room OR other_room. Verify the target
-	# lands inside SOME registered room's bounds (1-tile inset).
+func test_idle_wandering_picks_target_inside_commanders_room_bounds() -> void:
+	# Single-room MVP: picker only has own_room available. Verify the target
+	# lands inside the commander's bedroom bounds (1-tile inset).
 	# Arrange
 	var stack: Dictionary = _make_stack("claude_dev")
 	var acc: AgentCharacterController = stack["acc"]
@@ -230,13 +226,12 @@ func test_idle_wandering_picks_target_inside_some_registered_room_bounds() -> vo
 	# Act
 	acc._pick_idle_wander_target()
 
-	# Assert — target is inside either room:
-	#   commander: bounds (1,1,20,15) → world (16,16) to (336,240)
-	#   agent_01:  bounds (22,1,18,13) → world (352,16) to (640,224)
+	# Assert — commander's bounds (1,1,20,15) → world (16,16) to (336,240).
+	# Picker uses middle-50% bias, so target is anywhere in that range.
 	var t: Vector2 = acc.get_walk_target()
-	var in_commander: bool = t.x >= 16.0 and t.x <= 336.0 and t.y >= 16.0 and t.y <= 240.0
-	var in_agent: bool = t.x >= 352.0 and t.x <= 640.0 and t.y >= 16.0 and t.y <= 224.0
-	assert_true(in_commander or in_agent,
-		"Wander target (%s) must fall inside commander's room or agent room bounds" % t)
+	assert_gte(t.x, 16.0, "Wander x within commander's room left edge")
+	assert_lte(t.x, 336.0, "Wander x within commander's room right edge")
+	assert_gte(t.y, 16.0, "Wander y within commander's room top edge")
+	assert_lte(t.y, 240.0, "Wander y within commander's room bottom edge")
 
 	_cleanup(stack)

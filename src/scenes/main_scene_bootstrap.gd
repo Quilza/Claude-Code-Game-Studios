@@ -163,16 +163,18 @@ func _instantiate_agent_character_controllers() -> void:
 # ─── Deferred wiring (per Rule 10) ───────────────────────────────────────────
 
 func _perform_initial_wiring() -> void:
-	# Assign each configured agent to the agent room (per RoomSystem Rule 6).
+	# Single-room MVP: assign every configured agent to the commander's
+	# bedroom (the only room registered). Each agent gets a workstation slot
+	# from the pre-allocated set in RoomData.workstation_tiles.
+	# V1 (multi-room): route agents to rooms by type/role here.
 	if _room_system != null and _config_loader_available():
 		var agents: Array[Dictionary] = ConfigurationLoader.get_agents()
-		# Use the RoomSystem.AGENT_ROOM_ID constant per ADR-0001 type contract.
-		var agent_room_id: StringName = _room_system.AGENT_ROOM_ID
+		var room_id: StringName = _room_system.COMMANDERS_ROOM_ID
 		for agent: Dictionary in agents:
 			var id: String = String(agent.get("id", ""))
 			if id.is_empty():
 				continue
-			_room_system.assign_agent(agent_room_id, id)
+			_room_system.assign_agent(room_id, id)
 
 	# Begin ambient music per Q6 (optional asset).
 	_begin_ambient_music()

@@ -25,8 +25,25 @@ signal computer_interacted   # forwarded from the commander's computer prop
 
 # ─── Room ID constants (per Rule 3) ──────────────────────────────────────────
 
+## The single MVP room — Commander Quill's bedroom. Houses the desk + bed +
+## monitors etc., plus workstation slots where visiting AI agents station
+## themselves when their ASM state is `working`.
+##
+## V1 expansion (multi-room): introduce additional room_ids here and have
+## `_populate_mvp_rooms()` register all of them. The bedroom name stays;
+## new rooms get their own IDs (e.g. `&"office"`, `&"kitchen"`).
 const COMMANDERS_ROOM_ID: StringName = &"commander"
-const AGENT_ROOM_ID: StringName = &"agent_01"
+
+## Legacy alias kept for tests/integrations during the single-room MVP
+## transition. Resolves to COMMANDERS_ROOM_ID so existing callers don't
+## break. Remove once all tests are migrated.
+const AGENT_ROOM_ID: StringName = COMMANDERS_ROOM_ID
+
+## Maximum agent slots in the commander's room. Pre-allocated as
+## workstation tiles so configured agents (up to this many) can each have
+## a unique work position. Sized for project ceiling of 12 agents per
+## technical-preferences. Currently exercised by 1.
+const MAX_WORKSTATION_SLOTS: int = 12
 
 
 # ─── bunker_rooms group (per Rule 11) ────────────────────────────────────────
@@ -36,6 +53,20 @@ const AGENT_ROOM_ID: StringName = &"agent_01"
 ## reference. Matches the contract specified in
 ## design/gdd/task-completion-beat.md §Detailed Rules #10.
 const BUNKER_ROOMS_GROUP: StringName = &"bunker_rooms"
+
+
+# ─── Debug room outlines (TEMPORARY — remove when floor tiles ship) ──────────
+
+## Per-room ColorRect tints for the debug overlay. Each room gets a
+## translucent fill so a human observer can see where the rooms are while
+## the TileMapRenderer's Floor layer is empty (pre-asset-procurement).
+##
+## DELETE when floor tile authoring lands: per ADR-0011 the Floor layer
+## owns the visible room substrate, not the Room Node2D.
+const DEBUG_ROOM_TINTS: Dictionary = {
+	&"commander": Color(0.35, 0.55, 0.95, 0.18),   # cool blue
+}
+const DEBUG_ROOM_TINT_DEFAULT: Color = Color(0.6, 0.6, 0.6, 0.15)
 
 
 # ─── RoomData (typed inner class, per Rule 4) ────────────────────────────────
@@ -87,24 +118,38 @@ func _ready() -> void:
 # ─── MVP room population (per Rule 3) ────────────────────────────────────────
 
 func _populate_mvp_rooms() -> void:
-	# MVP: 2 hardcoded rooms. V1 expansion: loop over ConfigLoader.get_agents().
+	# Single-room MVP — Commander Quill's bedroom. Aligns with the project's
+	# narrative pivot away from a multi-room "bunker" to "one cozy bedroom".
+	# V1 expansion (when more rooms exist): add more entries here.
 	#
-	# Default bounds — sized to fit the 480×270 viewport per ADR-0013 with
-	# room for HUD chrome on the right edge. Cell coordinates.
+	# Bounds — sized to fit the 480×270 viewport per ADR-0013, with room
+	# for HUD chrome on the right edge. Cell coordinates.
 	#   Commander's Room: 20 wide × 15 tall = 320×240 px at top-left
-	#   Agent Room:        18 wide × 13 tall to the right of Commander's
+	#
+	# Workstation tiles — pre-allocated for up to MAX_WORKSTATION_SLOTS
+	# agents. Bootstrap assigns each configured agent to one slot in order
+	# (slot 0 = first agent, slot 1 = second, etc.). Positions are along
+	# the back wall (row 3) where the desks + monitors render so the agents'
+	# WORKING state visually reads as "at the computer".
+	var workstation_tiles: Array[Vector2i] = []
+	var workstation_row: int = 3   # tile y — near top of room, where back wall + monitors live
+	# Spread workstations across the room width with even spacing.
+	# Room interior x: tile 2..19 (1-tile inset on each side).
+	# 12 slots spaced across 18 tiles → step 1, but we want pairs for the desk pattern.
+	var workstation_x_positions: Array[int] = [
+		3, 5, 7, 9, 11, 13, 15, 17,    # 8 slots along the back wall (left side of room)
+		3, 7, 11, 15,                   # 4 more on a second row (in case agents > 8)
+	]
+	for i: int in MAX_WORKSTATION_SLOTS:
+		var x: int = workstation_x_positions[i] if i < workstation_x_positions.size() else 10
+		var y: int = workstation_row if i < 8 else 6
+		workstation_tiles.append(Vector2i(x, y))
+
 	var commanders_room: RoomData = RoomData.new(
 		Rect2i(1, 1, 20, 15),
-		[],   # No workstations in Commander's Room — Commander wanders
+		workstation_tiles,
 	)
 	_rooms[COMMANDERS_ROOM_ID] = commanders_room
-
-	# Agent Room: one workstation slot at tile (24, 5).
-	var agent_room: RoomData = RoomData.new(
-		Rect2i(22, 1, 18, 13),
-		[Vector2i(28, 5)] as Array[Vector2i],
-	)
-	_rooms[AGENT_ROOM_ID] = agent_room
 
 
 func _register_rooms_with_tilemap() -> void:
@@ -147,8 +192,29 @@ func _instantiate_room_nodes() -> void:
 			float(data.bounds.position.y * cell_size),
 		)
 		room_node.add_to_group(BUNKER_ROOMS_GROUP)
+		# TEMPORARY: debug visualization. The TileMapRenderer Floor layer will
+		# own the real visible substrate once floor tile art is authored.
+		# Until then, paint a translucent ColorRect inside each Room node so
+		# the player (and the dev) can see where the rooms actually are.
+		# Sits at z_index = -10 to render BEHIND agent bodies and props.
+		_attach_debug_overlay(room_node, data, cell_size)
 		add_child(room_node)
 		_room_nodes[StringName(room_id)] = room_node
+
+
+## TEMPORARY (pre-asset): paints a translucent fill matching the room bounds.
+## Remove this method and its call site when the Floor layer has art.
+func _attach_debug_overlay(room_node: Room, data: RoomData, cell_size: int) -> void:
+	var overlay: ColorRect = ColorRect.new()
+	overlay.name = "DebugOverlay"
+	overlay.size = Vector2(
+		float(data.bounds.size.x * cell_size),
+		float(data.bounds.size.y * cell_size),
+	)
+	overlay.color = DEBUG_ROOM_TINTS.get(room_node.room_id, DEBUG_ROOM_TINT_DEFAULT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.z_index = -10
+	room_node.add_child(overlay)
 
 
 # ─── Public API (per Rule 7 / GDD §Interactions) ─────────────────────────────

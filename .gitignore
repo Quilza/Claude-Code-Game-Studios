@@ -28,6 +28,15 @@ production/session-logs/
 
 expansions/
 
+# === Asset packs (third-party, large; tracked separately or not at all) ===
+# LimeZu Modern Interiors and similar — the user downloads these locally.
+# Only files in assets/sprites/ (curated subset) are committed.
+assets/packs/
+
+# === Scratch / dev preview output ===
+.scratch/*.png
+.scratch/*.json
+
 # === Runtime Artifacts (auto-generated, start empty on fresh clone) ===
 # Created on first use by /consistency-check and /architecture-review
 docs/consistency-failures.md
